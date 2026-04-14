@@ -35,6 +35,10 @@ pub const X11Window = struct {
 
         const event_mask = display.c.ExposureMask |
             display.c.KeyPressMask |
+            display.c.KeyReleaseMask |
+            display.c.ButtonPressMask |
+            display.c.ButtonReleaseMask |
+            display.c.PointerMotionMask |
             display.c.StructureNotifyMask |
             display.c.FocusChangeMask |
             display.c.EnterWindowMask |

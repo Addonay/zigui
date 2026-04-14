@@ -134,14 +134,78 @@ pub const X11Backend = struct {
                             },
                         }) catch {};
                     },
-                    .key_press => {
+                    .key_press => |key_event| {
                         self.events.push(self.allocator, .{
                             .key = .{
                                 .window_id = target,
-                                .key_code = @intCast(raw_event.xkey.keycode),
+                                .key_code = key_event.key_code,
                                 .pressed = true,
-                                .modifiers = @as(ui_input.ModifierMask, @bitCast(self.keyboardInfo().modifiers)),
-                                .time_ms = @intCast(raw_event.xkey.time),
+                                .modifiers = modifierMaskFromXState(key_event.state),
+                                .time_ms = key_event.time_ms,
+                            },
+                        }) catch {};
+                    },
+                    .key_release => |key_event| {
+                        self.events.push(self.allocator, .{
+                            .key = .{
+                                .window_id = target,
+                                .key_code = key_event.key_code,
+                                .pressed = false,
+                                .modifiers = modifierMaskFromXState(key_event.state),
+                                .time_ms = key_event.time_ms,
+                            },
+                        }) catch {};
+                    },
+                    .button_press => |button_event| {
+                        if (scrollDelta(button_event.button)) |delta| {
+                            self.events.push(self.allocator, .{
+                                .pointer = .{
+                                    .window_id = target,
+                                    .phase = .scroll,
+                                    .x = button_event.x,
+                                    .y = button_event.y,
+                                    .scroll_x = delta.x,
+                                    .scroll_y = delta.y,
+                                    .continuous = false,
+                                    .time_ms = button_event.time_ms,
+                                },
+                            }) catch {};
+                        } else {
+                            self.events.push(self.allocator, .{
+                                .pointer = .{
+                                    .window_id = target,
+                                    .phase = .button,
+                                    .x = button_event.x,
+                                    .y = button_event.y,
+                                    .button = pointerButtonFromX11(button_event.button),
+                                    .pressed = true,
+                                    .time_ms = button_event.time_ms,
+                                },
+                            }) catch {};
+                        }
+                    },
+                    .button_release => |button_event| {
+                        if (scrollDelta(button_event.button) != null) continue;
+                        self.events.push(self.allocator, .{
+                            .pointer = .{
+                                .window_id = target,
+                                .phase = .button,
+                                .x = button_event.x,
+                                .y = button_event.y,
+                                .button = pointerButtonFromX11(button_event.button),
+                                .pressed = false,
+                                .time_ms = button_event.time_ms,
+                            },
+                        }) catch {};
+                    },
+                    .motion => |motion_event| {
+                        self.events.push(self.allocator, .{
+                            .pointer = .{
+                                .window_id = target,
+                                .phase = .move,
+                                .x = motion_event.x,
+                                .y = motion_event.y,
+                                .time_ms = motion_event.time_ms,
                             },
                         }) catch {};
                     },
@@ -347,6 +411,36 @@ fn detectXimState(locale_name: []const u8, xmodifiers: ?[]const u8) xim_handler.
         state.enableBasic(locale_name);
     }
     return state;
+}
+
+fn modifierMaskFromXState(state: u32) ui_input.ModifierMask {
+    return .{
+        .shift = (state & @as(u32, display.c.ShiftMask)) != 0,
+        .ctrl = (state & @as(u32, display.c.ControlMask)) != 0,
+        .alt = (state & @as(u32, display.c.Mod1Mask)) != 0,
+        .super = (state & @as(u32, display.c.Mod4Mask)) != 0,
+        .caps_lock = (state & @as(u32, display.c.LockMask)) != 0,
+        .num_lock = (state & @as(u32, display.c.Mod2Mask)) != 0,
+    };
+}
+
+fn pointerButtonFromX11(button: u32) ?ui_input.PointerButton {
+    return switch (button) {
+        1 => .left,
+        2 => .middle,
+        3 => .right,
+        else => .other,
+    };
+}
+
+fn scrollDelta(button: u32) ?struct { x: f32, y: f32 } {
+    return switch (button) {
+        4 => .{ .x = 0, .y = -1 },
+        5 => .{ .x = 0, .y = 1 },
+        6 => .{ .x = -1, .y = 0 },
+        7 => .{ .x = 1, .y = 0 },
+        else => null,
+    };
 }
 
 const vtable = common.RuntimeVTable{

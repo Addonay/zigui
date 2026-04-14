@@ -37,6 +37,8 @@ pub const ModifierMask = packed struct(u8) {
 pub const KeyboardLayout = enum {
     unknown,
     xkb,
+    windows,
+    apple,
 };
 
 pub const KeyboardInfo = struct {
