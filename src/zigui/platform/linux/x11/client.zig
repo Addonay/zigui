@@ -1,0 +1,515 @@
+const std = @import("std");
+const common = @import("../../common.zig");
+const keyboard = @import("../keyboard.zig");
+const types = @import("../types.zig");
+const ui_input = @import("../../../input.zig");
+const clipboard = @import("clipboard.zig");
+const display = @import("display.zig");
+const event = @import("event.zig");
+const xim_handler = @import("xim_handler.zig");
+const window = @import("window.zig");
+const xdg_desktop_portal = @import("../xdg_desktop_portal.zig");
+
+pub const X11Backend = struct {
+    allocator: std.mem.Allocator,
+    display: display.X11Display,
+    windows: std.ArrayListUnmanaged(window.X11Window) = .empty,
+    events: ui_input.EventQueue = .{},
+    clipboard: clipboard.ClipboardState = .{},
+    xim: xim_handler.XimState = .{},
+    active_window: ?display.c.Window = null,
+    appearance: types.LinuxWindowAppearance = .light,
+    button_layout: types.LinuxWindowButtonLayout = .{},
+
+    pub fn init(allocator: std.mem.Allocator, options: common.WindowOptions) !X11Backend {
+        const display_name = std.c.getenv("DISPLAY") orelse return error.DisplayUnavailable;
+        var x11_display = try display.X11Display.open(display_name);
+        errdefer x11_display.close();
+
+        const x11_window = try window.X11Window.create(allocator, &x11_display, options);
+        errdefer {
+            var owned_window = x11_window;
+            owned_window.destroy(&x11_display);
+        }
+
+        var backend = X11Backend{
+            .allocator = allocator,
+            .display = x11_display,
+            .windows = .{},
+            .xim = detectXimState(
+                getenvSlice("LC_CTYPE") orelse getenvSlice("LANG") orelse "C",
+                getenvSlice("XMODIFIERS"),
+            ),
+            .active_window = x11_window.handle,
+        };
+        const visual_settings = xdg_desktop_portal.currentVisualSettings(allocator);
+        backend.appearance = visual_settings.appearance;
+        backend.button_layout = visual_settings.button_layout;
+        errdefer backend.windows.deinit(allocator);
+        try backend.windows.append(allocator, x11_window);
+        return backend;
+    }
+
+    pub fn deinit(self: *X11Backend) void {
+        for (self.windows.items) |*owned_window| owned_window.destroy(&self.display);
+        self.windows.deinit(self.allocator);
+        self.events.deinit(self.allocator);
+        self.display.close();
+    }
+
+    pub fn run(self: *X11Backend) !void {
+        var raw_event: display.c.XEvent = undefined;
+        while (self.windows.items.len != 0) {
+            _ = display.c.XNextEvent(self.display.handle, &raw_event);
+            const target = event.windowHandle(&raw_event);
+            const decoded = event.decode(&raw_event);
+
+            if (self.windowPtr(target)) |owned_window| {
+                if (event.requestsClose(decoded, owned_window.wm_delete_window)) {
+                    self.events.push(self.allocator, .{
+                        .window = .{
+                            .window_id = target,
+                            .kind = .close_requested,
+                        },
+                    }) catch {};
+                    try self.closeWindow(target);
+                    continue;
+                }
+
+                switch (decoded) {
+                    .configure => |configure| {
+                        owned_window.width = configure.width;
+                        owned_window.height = configure.height;
+                        self.events.push(self.allocator, .{
+                            .window = .{
+                                .window_id = target,
+                                .kind = .resize,
+                                .width = configure.width,
+                                .height = configure.height,
+                                .scale_factor = 1.0,
+                            },
+                        }) catch {};
+                    },
+                    .focus_in => {
+                        self.active_window = target;
+                        self.syncWindowFocusState(target);
+                        self.events.push(self.allocator, .{
+                            .window = .{
+                                .window_id = target,
+                                .kind = .focus,
+                                .focused = true,
+                            },
+                        }) catch {};
+                    },
+                    .focus_out => {
+                        if (self.active_window != null and self.active_window.? == target) {
+                            self.active_window = null;
+                        }
+                        owned_window.setActive(false);
+                        self.events.push(self.allocator, .{
+                            .window = .{
+                                .window_id = target,
+                                .kind = .focus,
+                                .focused = false,
+                            },
+                        }) catch {};
+                    },
+                    .enter => {
+                        owned_window.setHovered(true);
+                        self.events.push(self.allocator, .{
+                            .window = .{
+                                .window_id = target,
+                                .kind = .hover,
+                                .hovered = true,
+                            },
+                        }) catch {};
+                    },
+                    .leave => {
+                        owned_window.setHovered(false);
+                        self.events.push(self.allocator, .{
+                            .window = .{
+                                .window_id = target,
+                                .kind = .hover,
+                                .hovered = false,
+                            },
+                        }) catch {};
+                    },
+                    .key_press => {
+                        self.events.push(self.allocator, .{
+                            .key = .{
+                                .window_id = target,
+                                .key_code = @intCast(raw_event.xkey.keycode),
+                                .pressed = true,
+                                .modifiers = @as(ui_input.ModifierMask, @bitCast(self.keyboardInfo().modifiers)),
+                                .time_ms = @intCast(raw_event.xkey.time),
+                            },
+                        }) catch {};
+                    },
+                    else => {},
+                }
+            }
+        }
+    }
+
+    pub fn name(self: *const X11Backend) []const u8 {
+        _ = self;
+        return "linux-x11";
+    }
+
+    pub fn compositorName(self: *const X11Backend) []const u8 {
+        _ = self;
+        return "x11";
+    }
+
+    pub fn services(self: *const X11Backend) common.PlatformServices {
+        const supports_ime = self.xim.availability != .unavailable;
+        return .{
+            .backend = .linux_x11,
+            .supports_ime = supports_ime,
+            .supports_clipboard = true,
+            .supports_gpu_rendering = false,
+            .supports_multiple_windows = true,
+        };
+    }
+
+    pub fn diagnostics(self: *const X11Backend) common.Diagnostics {
+        return .{
+            .backend_name = "linux-x11",
+            .window_system = "X11",
+            .renderer = "unbound",
+            .note = if (self.xim.supportsPreedit())
+                "X11 fallback backend is active with XIM preedit support configured."
+            else
+                "X11 fallback backend is active.",
+        };
+    }
+
+    pub fn keyboardInfo(self: *const X11Backend) keyboard.KeyboardInfo {
+        return .{
+            .compose_enabled = self.xim.availability != .unavailable,
+        };
+    }
+
+    pub fn snapshot(self: *const X11Backend) types.LinuxRuntimeSnapshot {
+        return .{
+            .compositor_name = self.compositorName(),
+            .keyboard = self.keyboardInfo(),
+            .clipboard = .{
+                .available = self.clipboard.has_clipboard,
+                .has_text = self.clipboard.hasData(.clipboard),
+                .mime_type = if (self.clipboard.hasData(.clipboard)) "text/plain;charset=utf-8" else null,
+            },
+            .primary_selection = .{
+                .available = self.clipboard.has_primary_selection,
+                .has_text = self.clipboard.hasData(.primary),
+                .mime_type = if (self.clipboard.hasData(.primary)) "text/plain;charset=utf-8" else null,
+            },
+            .appearance = self.appearance,
+            .button_layout = self.button_layout,
+            .display_count = 1,
+            .window_count = self.windowCount(),
+            .active_window = self.activeWindowInfo(),
+        };
+    }
+
+    pub fn setCursorStyle(self: *X11Backend, cursor_kind: common.Cursor) void {
+        for (self.windows.items) |*owned_window| owned_window.applyCursor(&self.display, cursor_kind);
+    }
+
+    pub fn writeTextToClipboard(
+        self: *X11Backend,
+        kind: types.LinuxClipboardKind,
+        text: []const u8,
+    ) !void {
+        self.clipboard.write(switch (kind) {
+            .primary => .primary,
+            .clipboard => .clipboard,
+        }, text);
+    }
+
+    pub fn readTextFromClipboardAlloc(
+        self: *X11Backend,
+        kind: types.LinuxClipboardKind,
+        allocator: std.mem.Allocator,
+    ) ![]u8 {
+        const clipboard_kind = switch (kind) {
+            .primary => clipboard.ClipboardKind.primary,
+            .clipboard => clipboard.ClipboardKind.clipboard,
+        };
+        if (!self.clipboard.hasData(clipboard_kind)) return error.NoClipboardText;
+        return allocator.dupe(u8, self.clipboard.read(clipboard_kind));
+    }
+
+    pub fn displayInfosAlloc(
+        self: *const X11Backend,
+        allocator: std.mem.Allocator,
+    ) ![]types.LinuxDisplayInfo {
+        const infos = try allocator.alloc(types.LinuxDisplayInfo, 1);
+        infos[0] = self.display.snapshot();
+        return infos;
+    }
+
+    pub fn windowInfosAlloc(
+        self: *const X11Backend,
+        allocator: std.mem.Allocator,
+    ) ![]types.LinuxWindowInfo {
+        const count = self.windowCount();
+        const infos = try allocator.alloc(types.LinuxWindowInfo, count);
+        var index: usize = 0;
+        for (self.windows.items) |*owned_window| {
+            if (owned_window.close_requested) continue;
+            infos[index] = owned_window.snapshot();
+            index += 1;
+        }
+        return infos;
+    }
+
+    pub fn drainEventsAlloc(
+        self: *X11Backend,
+        allocator: std.mem.Allocator,
+    ) ![]ui_input.InputEvent {
+        return self.events.drainAlloc(allocator);
+    }
+
+    pub fn openWindow(self: *X11Backend, options: common.WindowOptions) !usize {
+        const owned_window = try window.X11Window.create(self.allocator, &self.display, options);
+        try self.windows.append(self.allocator, owned_window);
+        self.active_window = owned_window.handle;
+        self.syncWindowFocusState(owned_window.handle);
+        return owned_window.handle;
+    }
+
+    pub fn closeWindow(self: *X11Backend, handle: display.c.Window) !void {
+        const index = self.windowIndex(handle) orelse return error.WindowNotFound;
+        var owned_window = self.windows.orderedRemove(index);
+        owned_window.close_requested = true;
+        owned_window.destroy(&self.display);
+
+        if (self.active_window != null and self.active_window.? == handle) {
+            self.active_window = if (self.windows.items.len != 0) self.windows.items[self.windows.items.len - 1].handle else null;
+            if (self.active_window) |next_handle| self.syncWindowFocusState(next_handle);
+        }
+    }
+
+    pub fn activeWindowInfo(self: *const X11Backend) ?types.LinuxWindowInfo {
+        if (self.active_window) |handle| {
+            if (self.windowConstPtr(handle)) |owned_window| return owned_window.snapshot();
+        }
+        for (self.windows.items) |*owned_window| {
+            if (!owned_window.close_requested) return owned_window.snapshot();
+        }
+        return null;
+    }
+
+    fn windowCount(self: *const X11Backend) usize {
+        var count: usize = 0;
+        for (self.windows.items) |owned_window| {
+            if (!owned_window.close_requested) count += 1;
+        }
+        return count;
+    }
+
+    fn windowIndex(self: *const X11Backend, handle: display.c.Window) ?usize {
+        for (self.windows.items, 0..) |owned_window, index| {
+            if (owned_window.handle == handle) return index;
+        }
+        return null;
+    }
+
+    fn windowPtr(self: *X11Backend, handle: display.c.Window) ?*window.X11Window {
+        const index = self.windowIndex(handle) orelse return null;
+        return &self.windows.items[index];
+    }
+
+    fn windowConstPtr(self: *const X11Backend, handle: display.c.Window) ?*const window.X11Window {
+        const index = self.windowIndex(handle) orelse return null;
+        return &self.windows.items[index];
+    }
+
+    fn syncWindowFocusState(self: *X11Backend, active_handle: display.c.Window) void {
+        for (self.windows.items) |*owned_window| {
+            owned_window.setActive(owned_window.handle == active_handle);
+        }
+    }
+};
+
+fn getenvSlice(name: [*:0]const u8) ?[]const u8 {
+    const value = std.c.getenv(name) orelse return null;
+    return std.mem.span(value);
+}
+
+fn detectXimState(locale_name: []const u8, xmodifiers: ?[]const u8) xim_handler.XimState {
+    var state = xim_handler.XimState{};
+    if (std.mem.eql(u8, locale_name, "C")) return state;
+    if (xmodifiers != null) {
+        state.enablePreedit(locale_name);
+    } else {
+        state.enableBasic(locale_name);
+    }
+    return state;
+}
+
+const vtable = common.RuntimeVTable{
+    .deinit = runtimeDeinit,
+    .run = runtimeRun,
+    .name = runtimeName,
+    .services = runtimeServices,
+    .diagnostics = runtimeDiagnostics,
+    .snapshot = runtimeSnapshot,
+    .display_infos_alloc = runtimeDisplayInfosAlloc,
+    .window_infos_alloc = runtimeWindowInfosAlloc,
+    .drain_events_alloc = runtimeDrainEventsAlloc,
+    .set_cursor_style = runtimeSetCursorStyle,
+    .write_text_to_clipboard = runtimeWriteTextToClipboard,
+    .read_text_from_clipboard_alloc = runtimeReadTextFromClipboardAlloc,
+    .open_uri = runtimeOpenUri,
+    .reveal_path = runtimeRevealPath,
+    .prompt_for_paths_alloc = runtimePromptForPathsAlloc,
+    .prompt_for_new_path_alloc = runtimePromptForNewPathAlloc,
+    .open_window = runtimeOpenWindow,
+    .close_window = runtimeCloseWindow,
+};
+
+pub fn createRuntime(allocator: std.mem.Allocator, options: common.WindowOptions) !common.Runtime {
+    const backend = try allocator.create(X11Backend);
+    errdefer allocator.destroy(backend);
+
+    backend.* = try X11Backend.init(allocator, options);
+    return .{
+        .allocator = allocator,
+        .ptr = backend,
+        .vtable = &vtable,
+    };
+}
+
+fn runtimeDeinit(ptr: *anyopaque, allocator: std.mem.Allocator) void {
+    const backend: *X11Backend = @ptrCast(@alignCast(ptr));
+    backend.deinit();
+    allocator.destroy(backend);
+}
+
+fn runtimeRun(ptr: *anyopaque) anyerror!void {
+    const backend: *X11Backend = @ptrCast(@alignCast(ptr));
+    try backend.run();
+}
+
+fn runtimeName(ptr: *const anyopaque) []const u8 {
+    const backend: *const X11Backend = @ptrCast(@alignCast(ptr));
+    return backend.name();
+}
+
+fn runtimeServices(ptr: *const anyopaque) common.PlatformServices {
+    const backend: *const X11Backend = @ptrCast(@alignCast(ptr));
+    return backend.services();
+}
+
+fn runtimeDiagnostics(ptr: *const anyopaque) common.Diagnostics {
+    const backend: *const X11Backend = @ptrCast(@alignCast(ptr));
+    return backend.diagnostics();
+}
+
+fn runtimeSnapshot(ptr: *const anyopaque) common.RuntimeSnapshot {
+    const backend: *const X11Backend = @ptrCast(@alignCast(ptr));
+    return backend.snapshot();
+}
+
+fn runtimeDisplayInfosAlloc(
+    ptr: *const anyopaque,
+    allocator: std.mem.Allocator,
+) anyerror![]common.DisplayInfo {
+    const backend: *const X11Backend = @ptrCast(@alignCast(ptr));
+    return try backend.displayInfosAlloc(allocator);
+}
+
+fn runtimeWindowInfosAlloc(
+    ptr: *const anyopaque,
+    allocator: std.mem.Allocator,
+) anyerror![]common.WindowInfo {
+    const backend: *const X11Backend = @ptrCast(@alignCast(ptr));
+    return try backend.windowInfosAlloc(allocator);
+}
+
+fn runtimeDrainEventsAlloc(
+    ptr: *anyopaque,
+    allocator: std.mem.Allocator,
+) anyerror![]ui_input.InputEvent {
+    const backend: *X11Backend = @ptrCast(@alignCast(ptr));
+    return try backend.drainEventsAlloc(allocator);
+}
+
+fn runtimeSetCursorStyle(ptr: *anyopaque, cursor_kind: common.Cursor) void {
+    const backend: *X11Backend = @ptrCast(@alignCast(ptr));
+    backend.setCursorStyle(cursor_kind);
+}
+
+fn runtimeWriteTextToClipboard(
+    ptr: *anyopaque,
+    kind: common.ClipboardKind,
+    text: []const u8,
+) anyerror!void {
+    const backend: *X11Backend = @ptrCast(@alignCast(ptr));
+    try backend.writeTextToClipboard(kind, text);
+}
+
+fn runtimeReadTextFromClipboardAlloc(
+    ptr: *anyopaque,
+    kind: common.ClipboardKind,
+    allocator: std.mem.Allocator,
+) anyerror![]u8 {
+    const backend: *X11Backend = @ptrCast(@alignCast(ptr));
+    return try backend.readTextFromClipboardAlloc(kind, allocator);
+}
+
+fn runtimeOpenUri(ptr: *anyopaque, uri: []const u8) anyerror!void {
+    _ = ptr;
+    _ = uri;
+    return error.LaunchCommandUnavailable;
+}
+
+fn runtimeRevealPath(ptr: *anyopaque, path: []const u8) anyerror!void {
+    _ = ptr;
+    _ = path;
+    return error.LaunchCommandUnavailable;
+}
+
+fn runtimePromptForPathsAlloc(
+    ptr: *anyopaque,
+    allocator: std.mem.Allocator,
+    options: common.PathPromptOptions,
+) anyerror!?common.PathList {
+    _ = ptr;
+    _ = allocator;
+    _ = options;
+    return error.FileDialogUnavailable;
+}
+
+fn runtimePromptForNewPathAlloc(
+    ptr: *anyopaque,
+    allocator: std.mem.Allocator,
+    options: common.PathPromptOptions,
+) anyerror!?[]u8 {
+    _ = ptr;
+    _ = allocator;
+    _ = options;
+    return error.FileDialogUnavailable;
+}
+
+fn runtimeOpenWindow(ptr: *anyopaque, options: common.WindowOptions) anyerror!usize {
+    const backend: *X11Backend = @ptrCast(@alignCast(ptr));
+    return try backend.openWindow(options);
+}
+
+fn runtimeCloseWindow(ptr: *anyopaque, handle: usize) anyerror!void {
+    const backend: *X11Backend = @ptrCast(@alignCast(ptr));
+    try backend.closeWindow(@intCast(handle));
+}
+
+test "xim detection prefers preedit when XMODIFIERS is set" {
+    const xim = detectXimState("en_US.UTF-8", "@im=ibus");
+    try std.testing.expectEqual(xim_handler.XimAvailability.preedit, xim.availability);
+}
+
+test "xim detection falls back to basic callbacks without an XIM server" {
+    const xim = detectXimState("en_US.UTF-8", null);
+    try std.testing.expectEqual(xim_handler.XimAvailability.basic, xim.availability);
+}
