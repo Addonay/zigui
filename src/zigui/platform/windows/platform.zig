@@ -227,6 +227,57 @@ pub const WindowsBackend = struct {
             }) catch {};
         }
     }
+
+    pub fn setWindowTitle(self: *WindowsBackend, handle: usize, title: []const u8) !void {
+        const managed = self.windows.getMut(handle) orelse return error.WindowNotFound;
+        try managed.setTitle(self.allocator, title);
+    }
+
+    pub fn requestWindowDecorations(
+        self: *WindowsBackend,
+        handle: usize,
+        decorations: common.WindowDecorations,
+    ) !void {
+        const managed = self.windows.getMut(handle) orelse return error.WindowNotFound;
+        managed.requestDecorations(decorations);
+    }
+
+    pub fn showWindowMenu(self: *WindowsBackend, handle: usize, x: f32, y: f32) !void {
+        _ = self;
+        _ = handle;
+        _ = x;
+        _ = y;
+    }
+
+    pub fn startWindowMove(self: *WindowsBackend, handle: usize) !void {
+        _ = self;
+        _ = handle;
+    }
+
+    pub fn startWindowResize(self: *WindowsBackend, handle: usize, edge: common.ResizeEdge) !void {
+        _ = self;
+        _ = handle;
+        _ = edge;
+    }
+
+    pub fn windowDecorations(self: *const WindowsBackend, handle: usize) common.Decorations {
+        return if (self.windows.get(handle)) |managed|
+            managed.actual_decorations
+        else
+            .server;
+    }
+
+    pub fn windowControls(self: *const WindowsBackend, handle: usize) common.WindowControls {
+        return if (self.windows.get(handle)) |managed|
+            managed.window_controls
+        else
+            .{};
+    }
+
+    pub fn setClientInset(self: *WindowsBackend, handle: usize, inset: u32) !void {
+        const managed = self.windows.getMut(handle) orelse return error.WindowNotFound;
+        managed.setClientInset(inset);
+    }
 };
 
 pub fn createRuntime(allocator: std.mem.Allocator, options: common.WindowOptions) !common.Runtime {
@@ -262,6 +313,14 @@ const vtable = common.RuntimeVTable{
     .prompt_for_new_path_alloc = runtimePromptForNewPathAlloc,
     .open_window = runtimeOpenWindow,
     .close_window = runtimeCloseWindow,
+    .set_window_title = runtimeSetWindowTitle,
+    .request_window_decorations = runtimeRequestWindowDecorations,
+    .show_window_menu = runtimeShowWindowMenu,
+    .start_window_move = runtimeStartWindowMove,
+    .start_window_resize = runtimeStartWindowResize,
+    .window_decorations = runtimeWindowDecorations,
+    .window_controls = runtimeWindowControls,
+    .set_client_inset = runtimeSetClientInset,
 };
 
 fn runtimeDeinit(ptr: *anyopaque, allocator: std.mem.Allocator) void {
@@ -378,6 +437,54 @@ fn runtimeOpenWindow(ptr: *anyopaque, options: common.WindowOptions) anyerror!us
 fn runtimeCloseWindow(ptr: *anyopaque, handle: usize) anyerror!void {
     const backend: *WindowsBackend = @ptrCast(@alignCast(ptr));
     try backend.closeWindow(handle);
+}
+
+fn runtimeSetWindowTitle(ptr: *anyopaque, handle: usize, title: []const u8) anyerror!void {
+    const backend: *WindowsBackend = @ptrCast(@alignCast(ptr));
+    try backend.setWindowTitle(handle, title);
+}
+
+fn runtimeRequestWindowDecorations(
+    ptr: *anyopaque,
+    handle: usize,
+    decorations: common.WindowDecorations,
+) anyerror!void {
+    const backend: *WindowsBackend = @ptrCast(@alignCast(ptr));
+    try backend.requestWindowDecorations(handle, decorations);
+}
+
+fn runtimeShowWindowMenu(ptr: *anyopaque, handle: usize, x: f32, y: f32) anyerror!void {
+    const backend: *WindowsBackend = @ptrCast(@alignCast(ptr));
+    try backend.showWindowMenu(handle, x, y);
+}
+
+fn runtimeStartWindowMove(ptr: *anyopaque, handle: usize) anyerror!void {
+    const backend: *WindowsBackend = @ptrCast(@alignCast(ptr));
+    try backend.startWindowMove(handle);
+}
+
+fn runtimeStartWindowResize(
+    ptr: *anyopaque,
+    handle: usize,
+    edge: common.ResizeEdge,
+) anyerror!void {
+    const backend: *WindowsBackend = @ptrCast(@alignCast(ptr));
+    try backend.startWindowResize(handle, edge);
+}
+
+fn runtimeWindowDecorations(ptr: *const anyopaque, handle: usize) common.Decorations {
+    const backend: *const WindowsBackend = @ptrCast(@alignCast(ptr));
+    return backend.windowDecorations(handle);
+}
+
+fn runtimeWindowControls(ptr: *const anyopaque, handle: usize) common.WindowControls {
+    const backend: *const WindowsBackend = @ptrCast(@alignCast(ptr));
+    return backend.windowControls(handle);
+}
+
+fn runtimeSetClientInset(ptr: *anyopaque, handle: usize, inset: u32) anyerror!void {
+    const backend: *WindowsBackend = @ptrCast(@alignCast(ptr));
+    try backend.setClientInset(handle, inset);
 }
 
 fn queryAppearance(allocator: std.mem.Allocator) !common.WindowAppearance {

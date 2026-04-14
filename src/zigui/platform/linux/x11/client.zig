@@ -355,6 +355,61 @@ pub const X11Backend = struct {
         }
     }
 
+    pub fn setWindowTitle(self: *X11Backend, handle: display.c.Window, title: []const u8) !void {
+        const owned_window = self.windowPtr(handle) orelse return error.WindowNotFound;
+        try owned_window.setTitle(&self.display, title);
+    }
+
+    pub fn requestWindowDecorations(
+        self: *X11Backend,
+        handle: display.c.Window,
+        decorations: common.WindowDecorations,
+    ) !void {
+        const owned_window = self.windowPtr(handle) orelse return error.WindowNotFound;
+        try owned_window.requestDecorations(&self.display, decorations);
+    }
+
+    pub fn showWindowMenu(self: *X11Backend, handle: display.c.Window, x: f32, y: f32) !void {
+        _ = self;
+        _ = handle;
+        _ = x;
+        _ = y;
+    }
+
+    pub fn startWindowMove(self: *X11Backend, handle: display.c.Window) !void {
+        _ = self;
+        _ = handle;
+    }
+
+    pub fn startWindowResize(
+        self: *X11Backend,
+        handle: display.c.Window,
+        edge: common.ResizeEdge,
+    ) !void {
+        _ = self;
+        _ = handle;
+        _ = edge;
+    }
+
+    pub fn windowDecorations(self: *const X11Backend, handle: display.c.Window) common.Decorations {
+        return if (self.windowConstPtr(handle)) |owned_window|
+            owned_window.actual_decorations
+        else
+            .server;
+    }
+
+    pub fn windowControls(self: *const X11Backend, handle: display.c.Window) common.WindowControls {
+        return if (self.windowConstPtr(handle)) |owned_window|
+            owned_window.window_controls
+        else
+            .{};
+    }
+
+    pub fn setClientInset(self: *X11Backend, handle: display.c.Window, inset: u32) !void {
+        const owned_window = self.windowPtr(handle) orelse return error.WindowNotFound;
+        owned_window.setClientInset(inset);
+    }
+
     pub fn activeWindowInfo(self: *const X11Backend) ?types.LinuxWindowInfo {
         if (self.active_window) |handle| {
             if (self.windowConstPtr(handle)) |owned_window| return owned_window.snapshot();
@@ -462,6 +517,14 @@ const vtable = common.RuntimeVTable{
     .prompt_for_new_path_alloc = runtimePromptForNewPathAlloc,
     .open_window = runtimeOpenWindow,
     .close_window = runtimeCloseWindow,
+    .set_window_title = runtimeSetWindowTitle,
+    .request_window_decorations = runtimeRequestWindowDecorations,
+    .show_window_menu = runtimeShowWindowMenu,
+    .start_window_move = runtimeStartWindowMove,
+    .start_window_resize = runtimeStartWindowResize,
+    .window_decorations = runtimeWindowDecorations,
+    .window_controls = runtimeWindowControls,
+    .set_client_inset = runtimeSetClientInset,
 };
 
 pub fn createRuntime(allocator: std.mem.Allocator, options: common.WindowOptions) !common.Runtime {
@@ -596,6 +659,54 @@ fn runtimeOpenWindow(ptr: *anyopaque, options: common.WindowOptions) anyerror!us
 fn runtimeCloseWindow(ptr: *anyopaque, handle: usize) anyerror!void {
     const backend: *X11Backend = @ptrCast(@alignCast(ptr));
     try backend.closeWindow(@intCast(handle));
+}
+
+fn runtimeSetWindowTitle(ptr: *anyopaque, handle: usize, title: []const u8) anyerror!void {
+    const backend: *X11Backend = @ptrCast(@alignCast(ptr));
+    try backend.setWindowTitle(@intCast(handle), title);
+}
+
+fn runtimeRequestWindowDecorations(
+    ptr: *anyopaque,
+    handle: usize,
+    decorations: common.WindowDecorations,
+) anyerror!void {
+    const backend: *X11Backend = @ptrCast(@alignCast(ptr));
+    try backend.requestWindowDecorations(@intCast(handle), decorations);
+}
+
+fn runtimeShowWindowMenu(ptr: *anyopaque, handle: usize, x: f32, y: f32) anyerror!void {
+    const backend: *X11Backend = @ptrCast(@alignCast(ptr));
+    try backend.showWindowMenu(@intCast(handle), x, y);
+}
+
+fn runtimeStartWindowMove(ptr: *anyopaque, handle: usize) anyerror!void {
+    const backend: *X11Backend = @ptrCast(@alignCast(ptr));
+    try backend.startWindowMove(@intCast(handle));
+}
+
+fn runtimeStartWindowResize(
+    ptr: *anyopaque,
+    handle: usize,
+    edge: common.ResizeEdge,
+) anyerror!void {
+    const backend: *X11Backend = @ptrCast(@alignCast(ptr));
+    try backend.startWindowResize(@intCast(handle), edge);
+}
+
+fn runtimeWindowDecorations(ptr: *const anyopaque, handle: usize) common.Decorations {
+    const backend: *const X11Backend = @ptrCast(@alignCast(ptr));
+    return backend.windowDecorations(@intCast(handle));
+}
+
+fn runtimeWindowControls(ptr: *const anyopaque, handle: usize) common.WindowControls {
+    const backend: *const X11Backend = @ptrCast(@alignCast(ptr));
+    return backend.windowControls(@intCast(handle));
+}
+
+fn runtimeSetClientInset(ptr: *anyopaque, handle: usize, inset: u32) anyerror!void {
+    const backend: *X11Backend = @ptrCast(@alignCast(ptr));
+    try backend.setClientInset(@intCast(handle), inset);
 }
 
 test "xim detection prefers preedit when XMODIFIERS is set" {

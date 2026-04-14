@@ -389,8 +389,8 @@ pub const WaylandClient = struct {
         try self.state.display.flush();
         _ = std.os.linux.close(fds[1]);
 
-        var bytes = std.ArrayList(u8).init(allocator);
-        errdefer bytes.deinit();
+        var bytes: std.ArrayList(u8) = .empty;
+        errdefer bytes.deinit(allocator);
         var buffer: [4096]u8 = undefined;
         while (true) {
             const read_len = std.posix.read(fds[0], &buffer) catch |err| switch (err) {
@@ -398,10 +398,10 @@ pub const WaylandClient = struct {
                 else => return err,
             };
             if (read_len == 0) break;
-            try bytes.appendSlice(buffer[0..read_len]);
+            try bytes.appendSlice(allocator, buffer[0..read_len]);
         }
         _ = std.os.linux.close(fds[0]);
-        return bytes.toOwnedSlice();
+        return bytes.toOwnedSlice(allocator);
     }
 
     pub fn readPrimarySelectionTextAlloc(self: *WaylandClient, allocator: std.mem.Allocator) ![]u8 {
@@ -424,8 +424,8 @@ pub const WaylandClient = struct {
         try self.state.display.flush();
         _ = std.os.linux.close(fds[1]);
 
-        var bytes = std.ArrayList(u8).init(allocator);
-        errdefer bytes.deinit();
+        var bytes: std.ArrayList(u8) = .empty;
+        errdefer bytes.deinit(allocator);
         var buffer: [4096]u8 = undefined;
         while (true) {
             const read_len = std.posix.read(fds[0], &buffer) catch |err| switch (err) {
@@ -433,10 +433,10 @@ pub const WaylandClient = struct {
                 else => return err,
             };
             if (read_len == 0) break;
-            try bytes.appendSlice(buffer[0..read_len]);
+            try bytes.appendSlice(allocator, buffer[0..read_len]);
         }
         _ = std.os.linux.close(fds[0]);
-        return bytes.toOwnedSlice();
+        return bytes.toOwnedSlice(allocator);
     }
 
     pub fn setCursorStyle(self: *WaylandClient, cursor_kind: common.Cursor) void {
@@ -462,10 +462,99 @@ pub const WaylandClient = struct {
         try self.state.display.flush();
     }
 
+    pub fn setWindowTitle(self: *WaylandClient, handle: usize, title: []const u8) !void {
+        const surface: *c.wl_surface = @ptrFromInt(handle);
+        const owned_window = findWindowBySurface(self.state, surface) orelse return error.WindowNotFound;
+        try owned_window.setTitle(self.allocator, title);
+        presentWindowIfConfigured(self.state, owned_window);
+        try self.state.display.flush();
+    }
+
+    pub fn requestWindowDecorations(
+        self: *WaylandClient,
+        handle: usize,
+        decorations: common.WindowDecorations,
+    ) !void {
+        const surface: *c.wl_surface = @ptrFromInt(handle);
+        const owned_window = findWindowBySurface(self.state, surface) orelse return error.WindowNotFound;
+        owned_window.requestDecorations(decorations);
+        presentWindowIfConfigured(self.state, owned_window);
+        try self.state.display.flush();
+    }
+
+    pub fn showWindowMenu(self: *WaylandClient, handle: usize, x: f32, y: f32) !void {
+        const seat = self.state.globals.seat orelse return error.SeatUnavailable;
+        const surface: *c.wl_surface = @ptrFromInt(handle);
+        const owned_window = findWindowBySurface(self.state, surface) orelse return error.WindowNotFound;
+        const serial_value = self.state.input_state.pointer.serials.latestPointer();
+        if (serial_value == 0) return error.SelectionSerialUnavailable;
+        c.xdg_toplevel_show_window_menu(
+            owned_window.xdg_toplevel,
+            seat,
+            serial_value,
+            @intFromFloat(x),
+            @intFromFloat(y),
+        );
+        try self.state.display.flush();
+    }
+
+    pub fn startWindowMove(self: *WaylandClient, handle: usize) !void {
+        const seat = self.state.globals.seat orelse return error.SeatUnavailable;
+        const surface: *c.wl_surface = @ptrFromInt(handle);
+        const owned_window = findWindowBySurface(self.state, surface) orelse return error.WindowNotFound;
+        const serial_value = self.state.input_state.pointer.serials.latestPointer();
+        if (serial_value == 0) return error.SelectionSerialUnavailable;
+        c.xdg_toplevel_move(owned_window.xdg_toplevel, seat, serial_value);
+        try self.state.display.flush();
+    }
+
+    pub fn startWindowResize(self: *WaylandClient, handle: usize, edge: common.ResizeEdge) !void {
+        const seat = self.state.globals.seat orelse return error.SeatUnavailable;
+        const surface: *c.wl_surface = @ptrFromInt(handle);
+        const owned_window = findWindowBySurface(self.state, surface) orelse return error.WindowNotFound;
+        const serial_value = self.state.input_state.pointer.serials.latestPointer();
+        if (serial_value == 0) return error.SelectionSerialUnavailable;
+        c.xdg_toplevel_resize(owned_window.xdg_toplevel, seat, serial_value, resizeEdgeToXdg(edge));
+        try self.state.display.flush();
+    }
+
+    pub fn windowDecorations(self: *const WaylandClient, handle: usize) common.Decorations {
+        const surface: *c.wl_surface = @ptrFromInt(handle);
+        const owned_window = findWindowBySurface(self.state, surface) orelse return .server;
+        return owned_window.actualDecorations();
+    }
+
+    pub fn windowControls(self: *const WaylandClient, handle: usize) common.WindowControls {
+        const surface: *c.wl_surface = @ptrFromInt(handle);
+        const owned_window = findWindowBySurface(self.state, surface) orelse return .{};
+        return owned_window.window_controls;
+    }
+
+    pub fn setClientInset(self: *WaylandClient, handle: usize, inset: u32) !void {
+        const surface: *c.wl_surface = @ptrFromInt(handle);
+        const owned_window = findWindowBySurface(self.state, surface) orelse return error.WindowNotFound;
+        owned_window.setClientInset(inset);
+        presentWindowIfConfigured(self.state, owned_window);
+        try self.state.display.flush();
+    }
+
     pub fn drainEventsAlloc(self: *WaylandClient, allocator: std.mem.Allocator) ![]ui_input.InputEvent {
         return self.state.events.drainAlloc(allocator);
     }
 };
+
+fn resizeEdgeToXdg(edge: common.ResizeEdge) u32 {
+    return switch (edge) {
+        .top => c.XDG_TOPLEVEL_RESIZE_EDGE_TOP,
+        .top_right => c.XDG_TOPLEVEL_RESIZE_EDGE_TOP_RIGHT,
+        .right => c.XDG_TOPLEVEL_RESIZE_EDGE_RIGHT,
+        .bottom_right => c.XDG_TOPLEVEL_RESIZE_EDGE_BOTTOM_RIGHT,
+        .bottom => c.XDG_TOPLEVEL_RESIZE_EDGE_BOTTOM,
+        .bottom_left => c.XDG_TOPLEVEL_RESIZE_EDGE_BOTTOM_LEFT,
+        .left => c.XDG_TOPLEVEL_RESIZE_EDGE_LEFT,
+        .top_left => c.XDG_TOPLEVEL_RESIZE_EDGE_TOP_LEFT,
+    };
+}
 
 fn activateSurface(state: *WaylandState, token: []const u8) !void {
     const manager = state.globals.activation_manager orelse return error.ActivationUnsupported;
@@ -610,11 +699,18 @@ fn applyCurrentCursor(state: *WaylandState, owned_window: ?*window.WaylandWindow
         if (state.cursor_manager) |*manager| {
             const serial_value = state.input_state.pointer.serials.latestPointer();
             if (serial_value != 0 and state.input_state.pointer.entered) {
+                const cursor_kind = if (owned_window) |window_ref|
+                    window_ref.decorationCursor(
+                        state.input_state.pointer.surface_x,
+                        state.input_state.pointer.surface_y,
+                    ) orelse state.input_state.pointer.cursor
+                else
+                    state.input_state.pointer.cursor;
                 const scale = if (owned_window) |window_ref|
                     window_ref.primaryOutputScale(&state.outputs)
                 else
                     1;
-                manager.apply(pointer, serial_value, state.input_state.pointer.cursor, scale) catch {};
+                manager.apply(pointer, serial_value, cursor_kind, scale) catch {};
             }
         }
     }
@@ -732,9 +828,9 @@ fn writeOwnedSelectionToFd(bytes: []const u8, fd: i32) void {
     defer _ = std.os.linux.close(fd);
     var remaining = bytes;
     while (remaining.len != 0) {
-        const written = std.posix.write(fd, remaining) catch break;
-        if (written == 0) break;
-        remaining = remaining[written..];
+        const written = std.c.write(fd, remaining.ptr, remaining.len);
+        if (written <= 0) break;
+        remaining = remaining[@intCast(written)..];
     }
 }
 
@@ -751,7 +847,7 @@ fn dataSourceTarget(
 fn dataSourceSend(
     data: ?*anyopaque,
     source: ?*c.wl_data_source,
-    mime_type: [*:0]const u8,
+    mime_type: [*c]const u8,
     fd: i32,
 ) callconv(.c) void {
     _ = source;
@@ -799,7 +895,7 @@ const data_source_listener = c.wl_data_source_listener{
 fn primarySelectionSourceSend(
     data: ?*anyopaque,
     source: ?*c.zwp_primary_selection_source_v1,
-    mime_type: [*:0]const u8,
+    mime_type: [*c]const u8,
     fd: i32,
 ) callconv(.c) void {
     _ = source;
@@ -1076,6 +1172,11 @@ fn pointerMotion(
         c.wl_fixed_to_double(surface_x),
         c.wl_fixed_to_double(surface_y),
     );
+    const active_window = if (state.input_state.pointer.focused_surface) |focused_surface|
+        findWindowBySurface(state, focused_surface)
+    else
+        activeOrPrimaryWindow(state);
+    applyCurrentCursor(state, active_window);
     if (state.input_state.pointer.focused_surface) |focused_surface| {
         pushPointerEvent(state, .{
             .window_id = @intFromPtr(focused_surface),
@@ -1099,6 +1200,11 @@ fn pointerButton(
     const state: *WaylandState = @ptrCast(@alignCast(data.?));
     state.input_state.pointer.noteButton(serial_value, time_ms, button, state_value);
     if (state.input_state.pointer.focused_surface) |focused_surface| {
+        if (findWindowBySurface(state, focused_surface)) |owned_window| {
+            if (handleDecorationPointerButton(state, owned_window, serial_value, button, state_value)) {
+                return;
+            }
+        }
         pushPointerEvent(state, .{
             .window_id = @intFromPtr(focused_surface),
             .phase = .button,
@@ -1321,13 +1427,13 @@ fn maybeDestroyPrimarySelectionOffer(state: *WaylandState, offer_id: usize) void
 fn dataOfferMimeType(
     data: ?*anyopaque,
     wl_data_offer: ?*c.wl_data_offer,
-    mime_type: [*:0]const u8,
+    mime_type: [*c]const u8,
 ) callconv(.c) void {
     const state: *WaylandState = @ptrCast(@alignCast(data.?));
     const offer_ptr = wl_data_offer orelse return;
     const offer_id = @intFromPtr(offer_ptr);
     const offer = state.clipboard_offers.getPtr(offer_id) orelse return;
-    offer.addMimeType(state.allocator, std.mem.span(mime_type)) catch {};
+    offer.addMimeType(state.allocator, std.mem.span(@as([*:0]const u8, @ptrCast(mime_type)))) catch {};
 }
 
 fn dataOfferSourceActions(
@@ -1483,13 +1589,13 @@ const data_device_listener = c.wl_data_device_listener{
 fn primarySelectionOfferMimeType(
     data: ?*anyopaque,
     offer_ptr: ?*c.zwp_primary_selection_offer_v1,
-    mime_type: [*:0]const u8,
+    mime_type: [*c]const u8,
 ) callconv(.c) void {
     const state: *WaylandState = @ptrCast(@alignCast(data.?));
     const offer = offer_ptr orelse return;
     const offer_id = @intFromPtr(offer);
     const entry = state.primary_selection_offers.getPtr(offer_id) orelse return;
-    entry.addMimeType(state.allocator, std.mem.span(mime_type)) catch {};
+    entry.addMimeType(state.allocator, std.mem.span(@as([*:0]const u8, @ptrCast(mime_type)))) catch {};
 }
 
 const primary_selection_offer_listener = c.zwp_primary_selection_offer_v1_listener{
@@ -1734,6 +1840,7 @@ fn decorationConfigure(
     const decoration_ptr = decoration orelse return;
     const owned_window = findWindowByDecoration(state, decoration_ptr) orelse return;
     owned_window.handleDecorationConfigure(mode);
+    presentWindowIfConfigured(state, owned_window);
 }
 
 const decoration_listener = c.zxdg_toplevel_decoration_v1_listener{
@@ -1768,7 +1875,17 @@ fn xdgToplevelConfigure(
     const state: *WaylandState = @ptrCast(@alignCast(data.?));
     const xdg_toplevel_ptr = xdg_toplevel orelse return;
     const owned_window = findWindowByToplevel(state, xdg_toplevel_ptr) orelse return;
-    owned_window.onToplevelConfigure(width, height, toplevelStatesContain(states, c.XDG_TOPLEVEL_STATE_FULLSCREEN));
+    owned_window.onToplevelConfigure(
+        width,
+        height,
+        toplevelStatesContain(states, c.XDG_TOPLEVEL_STATE_MAXIMIZED),
+        toplevelStatesContain(states, c.XDG_TOPLEVEL_STATE_FULLSCREEN),
+        toplevelStatesContain(states, c.XDG_TOPLEVEL_STATE_ACTIVATED),
+        toplevelStatesContain(states, c.XDG_TOPLEVEL_STATE_TILED_LEFT),
+        toplevelStatesContain(states, c.XDG_TOPLEVEL_STATE_TILED_RIGHT),
+        toplevelStatesContain(states, c.XDG_TOPLEVEL_STATE_TILED_TOP),
+        toplevelStatesContain(states, c.XDG_TOPLEVEL_STATE_TILED_BOTTOM),
+    );
     pushWindowEvent(state, .{
         .window_id = @intFromPtr(owned_window.surface),
         .kind = .resize,
@@ -1776,6 +1893,77 @@ fn xdgToplevelConfigure(
         .height = owned_window.height,
         .scale_factor = @as(f32, @floatFromInt(owned_window.preferredScale120(&state.outputs))) / 120.0,
     });
+}
+
+fn handleDecorationPointerButton(
+    state: *WaylandState,
+    owned_window: *window.WaylandWindow,
+    serial_value: u32,
+    button: u32,
+    state_value: u32,
+) bool {
+    const hit = owned_window.decorationHitTest(
+        state.input_state.pointer.surface_x,
+        state.input_state.pointer.surface_y,
+    );
+    switch (hit) {
+        .content => return false,
+        else => {},
+    }
+
+    if (state_value != c.WL_POINTER_BUTTON_STATE_PRESSED) return true;
+
+    if (button == 0x111 and hit == .titlebar) {
+        const seat = state.globals.seat orelse return true;
+        c.xdg_toplevel_show_window_menu(
+            owned_window.xdg_toplevel,
+            seat,
+            serial_value,
+            @intFromFloat(state.input_state.pointer.surface_x),
+            @intFromFloat(state.input_state.pointer.surface_y),
+        );
+        state.display.flush() catch {};
+        return true;
+    }
+
+    if (button != 0x110) return true;
+
+    switch (hit) {
+        .titlebar => {
+            const seat = state.globals.seat orelse return true;
+            c.xdg_toplevel_move(owned_window.xdg_toplevel, seat, serial_value);
+            state.display.flush() catch {};
+        },
+        .resize => |edge| {
+            const seat = state.globals.seat orelse return true;
+            c.xdg_toplevel_resize(owned_window.xdg_toplevel, seat, serial_value, edge);
+            state.display.flush() catch {};
+        },
+        .minimize => {
+            c.xdg_toplevel_set_minimized(owned_window.xdg_toplevel);
+            state.display.flush() catch {};
+        },
+        .maximize => {
+            if (owned_window.maximized) {
+                c.xdg_toplevel_unset_maximized(owned_window.xdg_toplevel);
+            } else {
+                c.xdg_toplevel_set_maximized(owned_window.xdg_toplevel);
+            }
+            state.display.flush() catch {};
+        },
+        .close => {
+            pushWindowEvent(state, .{
+                .window_id = @intFromPtr(owned_window.surface),
+                .kind = .close_requested,
+            });
+            owned_window.close_requested = true;
+            closeTrackedWindow(state, owned_window.surface);
+            state.display.flush() catch {};
+        },
+        .content => return false,
+    }
+
+    return true;
 }
 
 fn xdgToplevelClose(
@@ -1921,7 +2109,7 @@ test "window snapshots track multiple wayland surfaces" {
         .width = 800,
         .height = 600,
         .resizable = true,
-        .decorations = true,
+        .decorations = .server,
     };
 
     const second = try allocator.create(window.WaylandWindow);
@@ -1934,7 +2122,7 @@ test "window snapshots track multiple wayland surfaces" {
         .width = 640,
         .height = 480,
         .resizable = false,
-        .decorations = true,
+        .decorations = .server,
         .fullscreen = true,
     };
 

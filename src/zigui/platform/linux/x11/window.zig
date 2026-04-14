@@ -17,6 +17,9 @@ pub const X11Window = struct {
     hovered: bool = false,
     fullscreen: bool = false,
     current_cursor: ?display.c.Cursor = null,
+    actual_decorations: common.Decorations = .server,
+    window_controls: common.WindowControls = .{},
+    client_inset: u32 = 0,
 
     pub fn create(allocator: std.mem.Allocator, x11: *display.X11Display, options: common.WindowOptions) !X11Window {
         const handle = display.c.XCreateSimpleWindow(
@@ -56,7 +59,7 @@ pub const X11Window = struct {
         _ = display.c.XMapWindow(x11.handle, handle);
         x11.flush();
 
-        return .{
+        var owned = X11Window{
             .allocator = allocator,
             .handle = handle,
             .wm_delete_window = wm_delete_window,
@@ -64,7 +67,13 @@ pub const X11Window = struct {
             .title_z = title,
             .width = options.width,
             .height = options.height,
+            .actual_decorations = switch (options.decorations) {
+                .server => .server,
+                .client => .{ .client = .{} },
+            },
         };
+        try owned.requestDecorations(x11, options.decorations);
+        return owned;
     }
 
     pub fn destroy(self: *X11Window, x11: *display.X11Display) void {
@@ -99,9 +108,11 @@ pub const X11Window = struct {
             .pointing_hand => display.c.XC_hand2,
             .resize_left_right => display.c.XC_sb_h_double_arrow,
             .resize_up_down => display.c.XC_sb_v_double_arrow,
+            .resize_up_left_down_right => display.c.XC_top_left_corner,
+            .resize_up_right_down_left => display.c.XC_top_right_corner,
         };
 
-        const cursor = display.c.XCreateFontCursor(x11.handle, glyph);
+        const cursor = display.c.XCreateFontCursor(x11.handle, @intCast(glyph));
         if (cursor == 0) return;
 
         if (self.current_cursor) |previous| _ = display.c.XFreeCursor(x11.handle, previous);
@@ -120,9 +131,11 @@ pub const X11Window = struct {
             .active = self.active,
             .hovered = self.hovered,
             .fullscreen = self.fullscreen,
-            .decorated = self.options.decorations,
+            .decorated = true,
+            .decorations = self.actual_decorations,
             .resizable = self.options.resizable,
             .visible = !self.close_requested,
+            .window_controls = self.window_controls,
         };
     }
 
@@ -132,5 +145,48 @@ pub const X11Window = struct {
 
     pub fn setHovered(self: *X11Window, hovered: bool) void {
         self.hovered = hovered;
+    }
+
+    pub fn setTitle(self: *X11Window, x11: *display.X11Display, title: []const u8) !void {
+        const title_z = try self.allocator.dupeZ(u8, title);
+        errdefer self.allocator.free(title_z);
+
+        self.allocator.free(self.title_z);
+        self.title_z = title_z;
+        self.options.title = self.title_z;
+        _ = display.c.XStoreName(x11.handle, self.handle, self.title_z.ptr);
+        x11.flush();
+    }
+
+    pub fn requestDecorations(
+        self: *X11Window,
+        x11: *display.X11Display,
+        decorations: common.WindowDecorations,
+    ) !void {
+        const motif_hints_atom = display.c.XInternAtom(x11.handle, "_MOTIF_WM_HINTS", display.c.False);
+        const hints_data: [5]c_ulong = switch (decorations) {
+            .server => .{ 1 << 1, 0, 1, 0, 0 },
+            .client => .{ 1 << 1, 0, 0, 0, 0 },
+        };
+        _ = display.c.XChangeProperty(
+            x11.handle,
+            self.handle,
+            motif_hints_atom,
+            motif_hints_atom,
+            32,
+            display.c.PropModeReplace,
+            @ptrCast(&hints_data),
+            hints_data.len,
+        );
+        x11.flush();
+        self.options.decorations = decorations;
+        self.actual_decorations = switch (decorations) {
+            .server => .server,
+            .client => .{ .client = .{} },
+        };
+    }
+
+    pub fn setClientInset(self: *X11Window, inset: u32) void {
+        self.client_inset = inset;
     }
 };

@@ -136,6 +136,64 @@ pub const HeadlessBackend = struct {
         _ = handle;
         return error.WindowingUnavailable;
     }
+
+    pub fn setWindowTitle(self: *HeadlessBackend, handle: usize, title: []const u8) !void {
+        _ = self;
+        _ = handle;
+        _ = title;
+        return error.WindowingUnavailable;
+    }
+
+    pub fn requestWindowDecorations(
+        self: *HeadlessBackend,
+        handle: usize,
+        decorations: common.WindowDecorations,
+    ) !void {
+        _ = self;
+        _ = handle;
+        _ = decorations;
+        return error.WindowingUnavailable;
+    }
+
+    pub fn showWindowMenu(self: *HeadlessBackend, handle: usize, x: f32, y: f32) !void {
+        _ = self;
+        _ = handle;
+        _ = x;
+        _ = y;
+        return error.WindowingUnavailable;
+    }
+
+    pub fn startWindowMove(self: *HeadlessBackend, handle: usize) !void {
+        _ = self;
+        _ = handle;
+        return error.WindowingUnavailable;
+    }
+
+    pub fn startWindowResize(self: *HeadlessBackend, handle: usize, edge: common.ResizeEdge) !void {
+        _ = self;
+        _ = handle;
+        _ = edge;
+        return error.WindowingUnavailable;
+    }
+
+    pub fn windowDecorations(self: *const HeadlessBackend, handle: usize) common.Decorations {
+        _ = self;
+        _ = handle;
+        return .server;
+    }
+
+    pub fn windowControls(self: *const HeadlessBackend, handle: usize) common.WindowControls {
+        _ = self;
+        _ = handle;
+        return .{};
+    }
+
+    pub fn setClientInset(self: *HeadlessBackend, handle: usize, inset: u32) !void {
+        _ = self;
+        _ = handle;
+        _ = inset;
+        return error.WindowingUnavailable;
+    }
 };
 
 const vtable = common.RuntimeVTable{
@@ -157,6 +215,14 @@ const vtable = common.RuntimeVTable{
     .prompt_for_new_path_alloc = runtimePromptForNewPathAlloc,
     .open_window = runtimeOpenWindow,
     .close_window = runtimeCloseWindow,
+    .set_window_title = runtimeSetWindowTitle,
+    .request_window_decorations = runtimeRequestWindowDecorations,
+    .show_window_menu = runtimeShowWindowMenu,
+    .start_window_move = runtimeStartWindowMove,
+    .start_window_resize = runtimeStartWindowResize,
+    .window_decorations = runtimeWindowDecorations,
+    .window_controls = runtimeWindowControls,
+    .set_client_inset = runtimeSetClientInset,
 };
 
 pub fn createRuntime(allocator: std.mem.Allocator, options: common.WindowOptions) !common.Runtime {
@@ -291,6 +357,54 @@ fn runtimeOpenWindow(ptr: *anyopaque, options: common.WindowOptions) anyerror!us
 fn runtimeCloseWindow(ptr: *anyopaque, handle: usize) anyerror!void {
     const backend: *HeadlessBackend = @ptrCast(@alignCast(ptr));
     try backend.closeWindow(handle);
+}
+
+fn runtimeSetWindowTitle(ptr: *anyopaque, handle: usize, title: []const u8) anyerror!void {
+    const backend: *HeadlessBackend = @ptrCast(@alignCast(ptr));
+    try backend.setWindowTitle(handle, title);
+}
+
+fn runtimeRequestWindowDecorations(
+    ptr: *anyopaque,
+    handle: usize,
+    decorations: common.WindowDecorations,
+) anyerror!void {
+    const backend: *HeadlessBackend = @ptrCast(@alignCast(ptr));
+    try backend.requestWindowDecorations(handle, decorations);
+}
+
+fn runtimeShowWindowMenu(ptr: *anyopaque, handle: usize, x: f32, y: f32) anyerror!void {
+    const backend: *HeadlessBackend = @ptrCast(@alignCast(ptr));
+    try backend.showWindowMenu(handle, x, y);
+}
+
+fn runtimeStartWindowMove(ptr: *anyopaque, handle: usize) anyerror!void {
+    const backend: *HeadlessBackend = @ptrCast(@alignCast(ptr));
+    try backend.startWindowMove(handle);
+}
+
+fn runtimeStartWindowResize(
+    ptr: *anyopaque,
+    handle: usize,
+    edge: common.ResizeEdge,
+) anyerror!void {
+    const backend: *HeadlessBackend = @ptrCast(@alignCast(ptr));
+    try backend.startWindowResize(handle, edge);
+}
+
+fn runtimeWindowDecorations(ptr: *const anyopaque, handle: usize) common.Decorations {
+    const backend: *const HeadlessBackend = @ptrCast(@alignCast(ptr));
+    return backend.windowDecorations(handle);
+}
+
+fn runtimeWindowControls(ptr: *const anyopaque, handle: usize) common.WindowControls {
+    const backend: *const HeadlessBackend = @ptrCast(@alignCast(ptr));
+    return backend.windowControls(handle);
+}
+
+fn runtimeSetClientInset(ptr: *anyopaque, handle: usize, inset: u32) anyerror!void {
+    const backend: *HeadlessBackend = @ptrCast(@alignCast(ptr));
+    try backend.setClientInset(handle, inset);
 }
 
 test "headless snapshot reports an empty desktop state" {

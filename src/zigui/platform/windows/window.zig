@@ -13,6 +13,9 @@ pub const ManagedWindow = struct {
     fullscreen: bool = false,
     visible: bool = true,
     current_cursor: common.Cursor = .arrow,
+    actual_decorations: common.Decorations = .server,
+    window_controls: common.WindowControls = .{},
+    client_inset: u32 = 0,
 
     pub fn init(
         allocator: std.mem.Allocator,
@@ -31,6 +34,10 @@ pub const ManagedWindow = struct {
             .title = title,
             .width = options.width,
             .height = options.height,
+            .actual_decorations = switch (options.decorations) {
+                .server => .server,
+                .client => .{ .client = .{} },
+            },
         };
     }
 
@@ -48,10 +55,32 @@ pub const ManagedWindow = struct {
             .active = self.active,
             .hovered = self.hovered,
             .fullscreen = self.fullscreen,
-            .decorated = self.options.decorations,
+            .decorated = true,
+            .decorations = self.actual_decorations,
             .resizable = self.options.resizable,
             .visible = self.visible,
+            .window_controls = self.window_controls,
         };
+    }
+
+    pub fn setTitle(self: *ManagedWindow, allocator: std.mem.Allocator, title: []const u8) !void {
+        const owned = try allocator.dupe(u8, title);
+        allocator.free(self.title);
+        self.title = owned;
+        self.options.title = self.title;
+    }
+
+    pub fn requestDecorations(self: *ManagedWindow, decorations: common.WindowDecorations) void {
+        self.options.decorations = decorations;
+        self.actual_decorations = switch (decorations) {
+            .server => .server,
+            .client => .{ .client = .{} },
+        };
+    }
+
+    pub fn setClientInset(self: *ManagedWindow, inset: u32) void {
+        self.client_inset = inset;
+        _ = self.client_inset;
     }
 };
 
@@ -121,6 +150,11 @@ pub const WindowState = struct {
     }
 
     pub fn get(self: *const WindowState, handle: usize) ?*const ManagedWindow {
+        const index = self.indexOf(handle) orelse return null;
+        return &self.windows.items[index];
+    }
+
+    pub fn getMut(self: *WindowState, handle: usize) ?*ManagedWindow {
         const index = self.indexOf(handle) orelse return null;
         return &self.windows.items[index];
     }

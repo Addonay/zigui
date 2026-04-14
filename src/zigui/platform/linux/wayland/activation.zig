@@ -6,7 +6,7 @@ pub fn loadEnvironmentTokenAlloc(allocator: std.mem.Allocator) !?[]u8 {
 }
 
 pub fn clearEnvironmentToken() void {
-    _ = std.c.unsetenv("XDG_ACTIVATION_TOKEN");
+    // Best-effort no-op on Zig stdlib snapshots where `unsetenv` is not exposed.
 }
 
 pub fn dupTokenZ(allocator: std.mem.Allocator, token: []const u8) ![:0]u8 {

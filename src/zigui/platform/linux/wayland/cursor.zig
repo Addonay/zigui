@@ -117,6 +117,8 @@ fn cursorNames(cursor_kind: common.Cursor) []const [*:0]const u8 {
         .pointing_hand => &.{ "pointer", "hand2", "hand1" },
         .resize_left_right => &.{ "ew-resize", "sb_h_double_arrow" },
         .resize_up_down => &.{ "ns-resize", "sb_v_double_arrow" },
+        .resize_up_left_down_right => &.{ "nwse-resize", "size_fdiag", "top_left_corner" },
+        .resize_up_right_down_left => &.{ "nesw-resize", "size_bdiag", "top_right_corner" },
     };
 }
 

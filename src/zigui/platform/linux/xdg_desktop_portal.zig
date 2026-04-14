@@ -77,7 +77,7 @@ pub const PortalState = struct {
 
         const trimmed = std.mem.trim(u8, stdout, " \r\n\t");
         if (trimmed.len == 0) return null;
-        return allocator.dupe(u8, trimmed);
+        return try allocator.dupe(u8, trimmed);
     }
 };
 
@@ -156,28 +156,28 @@ fn buildOpenPromptCommand(
     backend: DialogBackend,
     options: types.LinuxPathPromptOptions,
 ) !std.ArrayList([]u8) {
-    var argv = std.ArrayList([]u8).init(allocator);
+    var argv: std.ArrayList([]u8) = .empty;
     errdefer freeArgv(allocator, &argv);
 
     switch (backend) {
         .kdialog => {
-            try argv.append(try allocator.dupe(u8, "kdialog"));
+            try argv.append(allocator, try allocator.dupe(u8, "kdialog"));
             if (options.directories) {
-                try argv.append(try allocator.dupe(u8, "--getexistingdirectory"));
+                try argv.append(allocator, try allocator.dupe(u8, "--getexistingdirectory"));
             } else if (options.multiple) {
-                try argv.append(try allocator.dupe(u8, "--getopenfilename"));
-                try argv.append(try allocator.dupe(u8, "--multiple"));
-                try argv.append(try allocator.dupe(u8, "--separate-output"));
+                try argv.append(allocator, try allocator.dupe(u8, "--getopenfilename"));
+                try argv.append(allocator, try allocator.dupe(u8, "--multiple"));
+                try argv.append(allocator, try allocator.dupe(u8, "--separate-output"));
             } else {
-                try argv.append(try allocator.dupe(u8, "--getopenfilename"));
+                try argv.append(allocator, try allocator.dupe(u8, "--getopenfilename"));
             }
 
             if (options.current_directory) |directory| {
-                try argv.append(try allocator.dupe(u8, directory));
+                try argv.append(allocator, try allocator.dupe(u8, directory));
             }
             if (options.title) |title| {
-                try argv.append(try allocator.dupe(u8, "--title"));
-                try argv.append(try allocator.dupe(u8, title));
+                try argv.append(allocator, try allocator.dupe(u8, "--title"));
+                try argv.append(allocator, try allocator.dupe(u8, title));
             }
         },
         .zenity => {
@@ -189,27 +189,27 @@ fn buildOpenPromptCommand(
                 "matedialog"
             else
                 return error.FileDialogUnavailable;
-            try argv.append(try allocator.dupe(u8, command_name));
-            try argv.append(try allocator.dupe(u8, "--file-selection"));
+            try argv.append(allocator, try allocator.dupe(u8, command_name));
+            try argv.append(allocator, try allocator.dupe(u8, "--file-selection"));
 
             if (options.directories) {
-                try argv.append(try allocator.dupe(u8, "--directory"));
+                try argv.append(allocator, try allocator.dupe(u8, "--directory"));
             }
             if (options.multiple) {
-                try argv.append(try allocator.dupe(u8, "--multiple"));
-                try argv.append(try allocator.dupe(u8, "--separator=\n"));
+                try argv.append(allocator, try allocator.dupe(u8, "--multiple"));
+                try argv.append(allocator, try allocator.dupe(u8, "--separator=\n"));
             }
             if (options.title) |title| {
-                try argv.append(try allocator.dupe(u8, "--title"));
-                try argv.append(try allocator.dupe(u8, title));
+                try argv.append(allocator, try allocator.dupe(u8, "--title"));
+                try argv.append(allocator, try allocator.dupe(u8, title));
             }
             if (options.prompt_label) |label| {
-                try argv.append(try allocator.dupe(u8, "--ok-label"));
-                try argv.append(try allocator.dupe(u8, label));
+                try argv.append(allocator, try allocator.dupe(u8, "--ok-label"));
+                try argv.append(allocator, try allocator.dupe(u8, label));
             }
             if (options.current_directory) |directory| {
-                const filename = try std.fmt.allocPrint(allocator, "--filename={s}/", .{std.mem.trimRight(u8, directory, "/")});
-                try argv.append(filename);
+                const filename = try std.fmt.allocPrint(allocator, "--filename={s}/", .{trimTrailingSlashes(directory)});
+                try argv.append(allocator, filename);
             }
         },
         .unavailable => return error.FileDialogUnavailable,
@@ -223,22 +223,22 @@ fn buildSavePromptCommand(
     backend: DialogBackend,
     options: types.LinuxPathPromptOptions,
 ) !std.ArrayList([]u8) {
-    var argv = std.ArrayList([]u8).init(allocator);
+    var argv: std.ArrayList([]u8) = .empty;
     errdefer freeArgv(allocator, &argv);
 
     switch (backend) {
         .kdialog => {
-            try argv.append(try allocator.dupe(u8, "kdialog"));
-            try argv.append(try allocator.dupe(u8, "--getsavefilename"));
+            try argv.append(allocator, try allocator.dupe(u8, "kdialog"));
+            try argv.append(allocator, try allocator.dupe(u8, "--getsavefilename"));
 
             const initial = try buildInitialSavePath(allocator, options);
             if (initial) |path| {
                 errdefer allocator.free(path);
-                try argv.append(path);
+                try argv.append(allocator, path);
             }
             if (options.title) |title| {
-                try argv.append(try allocator.dupe(u8, "--title"));
-                try argv.append(try allocator.dupe(u8, title));
+                try argv.append(allocator, try allocator.dupe(u8, "--title"));
+                try argv.append(allocator, try allocator.dupe(u8, title));
             }
         },
         .zenity => {
@@ -250,24 +250,24 @@ fn buildSavePromptCommand(
                 "matedialog"
             else
                 return error.FileDialogUnavailable;
-            try argv.append(try allocator.dupe(u8, command_name));
-            try argv.append(try allocator.dupe(u8, "--file-selection"));
-            try argv.append(try allocator.dupe(u8, "--save"));
-            try argv.append(try allocator.dupe(u8, "--confirm-overwrite"));
+            try argv.append(allocator, try allocator.dupe(u8, command_name));
+            try argv.append(allocator, try allocator.dupe(u8, "--file-selection"));
+            try argv.append(allocator, try allocator.dupe(u8, "--save"));
+            try argv.append(allocator, try allocator.dupe(u8, "--confirm-overwrite"));
 
             if (options.title) |title| {
-                try argv.append(try allocator.dupe(u8, "--title"));
-                try argv.append(try allocator.dupe(u8, title));
+                try argv.append(allocator, try allocator.dupe(u8, "--title"));
+                try argv.append(allocator, try allocator.dupe(u8, title));
             }
             if (options.prompt_label) |label| {
-                try argv.append(try allocator.dupe(u8, "--ok-label"));
-                try argv.append(try allocator.dupe(u8, label));
+                try argv.append(allocator, try allocator.dupe(u8, "--ok-label"));
+                try argv.append(allocator, try allocator.dupe(u8, label));
             }
             if (try buildInitialSavePath(allocator, options)) |path| {
                 errdefer allocator.free(path);
                 const filename = try std.fmt.allocPrint(allocator, "--filename={s}", .{path});
                 allocator.free(path);
-                try argv.append(filename);
+                try argv.append(allocator, filename);
             }
         },
         .unavailable => return error.FileDialogUnavailable,
@@ -281,19 +281,19 @@ fn buildInitialSavePath(
     options: types.LinuxPathPromptOptions,
 ) !?[]u8 {
     const directory = options.current_directory orelse return if (options.suggested_name) |name|
-        allocator.dupe(u8, name)
+        try allocator.dupe(u8, name)
     else
         null;
 
     if (options.suggested_name) |name| {
-        return std.fmt.allocPrint(allocator, "{s}/{s}", .{ std.mem.trimRight(u8, directory, "/"), name });
+        return try std.fmt.allocPrint(allocator, "{s}/{s}", .{ trimTrailingSlashes(directory), name });
     }
-    return std.fmt.allocPrint(allocator, "{s}/", .{std.mem.trimRight(u8, directory, "/")});
+    return try std.fmt.allocPrint(allocator, "{s}/", .{trimTrailingSlashes(directory)});
 }
 
 fn freeArgv(allocator: std.mem.Allocator, argv: *std.ArrayList([]u8)) void {
     for (argv.items) |arg| allocator.free(arg);
-    argv.deinit();
+    argv.deinit(allocator);
 }
 
 fn runDialog(allocator: std.mem.Allocator, argv: []const []u8) ![]u8 {
@@ -406,6 +406,12 @@ fn getenvSlice(name: [*:0]const u8) ?[]const u8 {
     return std.mem.span(value);
 }
 
+fn trimTrailingSlashes(path: []const u8) []const u8 {
+    var end = path.len;
+    while (end > 0 and path[end - 1] == '/') end -= 1;
+    return path[0..end];
+}
+
 fn commandAvailable(name: []const u8) bool {
     const path = getenvSlice("PATH") orelse return false;
     var segments = std.mem.splitScalar(u8, path, ':');
@@ -413,7 +419,8 @@ fn commandAvailable(name: []const u8) bool {
         if (segment.len == 0) continue;
         var buffer: [std.fs.max_path_bytes]u8 = undefined;
         const candidate = std.fmt.bufPrint(&buffer, "{s}/{s}", .{ segment, name }) catch continue;
-        std.fs.cwd().access(candidate, .{}) catch continue;
+        const fd = std.posix.openat(std.posix.AT.FDCWD, candidate, .{ .ACCMODE = .RDONLY }, 0) catch continue;
+        _ = std.c.close(fd);
         return true;
     }
     return false;

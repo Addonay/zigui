@@ -499,6 +499,46 @@ pub const LinuxWaylandBackend = struct {
     pub fn closeWindow(self: *LinuxWaylandBackend, handle: usize) !void {
         try self.client.closeWindow(handle);
     }
+
+    pub fn setWindowTitle(self: *LinuxWaylandBackend, handle: usize, title: []const u8) !void {
+        try self.client.setWindowTitle(handle, title);
+    }
+
+    pub fn requestWindowDecorations(
+        self: *LinuxWaylandBackend,
+        handle: usize,
+        decorations: common.WindowDecorations,
+    ) !void {
+        try self.client.requestWindowDecorations(handle, decorations);
+    }
+
+    pub fn showWindowMenu(self: *LinuxWaylandBackend, handle: usize, x: f32, y: f32) !void {
+        try self.client.showWindowMenu(handle, x, y);
+    }
+
+    pub fn startWindowMove(self: *LinuxWaylandBackend, handle: usize) !void {
+        try self.client.startWindowMove(handle);
+    }
+
+    pub fn startWindowResize(
+        self: *LinuxWaylandBackend,
+        handle: usize,
+        edge: common.ResizeEdge,
+    ) !void {
+        try self.client.startWindowResize(handle, edge);
+    }
+
+    pub fn windowDecorations(self: *const LinuxWaylandBackend, handle: usize) common.Decorations {
+        return self.client.windowDecorations(handle);
+    }
+
+    pub fn windowControls(self: *const LinuxWaylandBackend, handle: usize) common.WindowControls {
+        return self.client.windowControls(handle);
+    }
+
+    pub fn setClientInset(self: *LinuxWaylandBackend, handle: usize, inset: u32) !void {
+        try self.client.setClientInset(handle, inset);
+    }
 };
 
 pub const LinuxBackend = union(enum) {
@@ -667,6 +707,74 @@ pub const LinuxBackend = union(enum) {
             .headless => |*backend| try backend.closeWindow(handle),
         }
     }
+
+    pub fn setWindowTitle(self: *LinuxBackend, handle: usize, title: []const u8) !void {
+        switch (self.*) {
+            .wayland => |*backend| try backend.setWindowTitle(handle, title),
+            .x11 => |*backend| try backend.setWindowTitle(@intCast(handle), title),
+            .headless => |*backend| try backend.setWindowTitle(handle, title),
+        }
+    }
+
+    pub fn requestWindowDecorations(
+        self: *LinuxBackend,
+        handle: usize,
+        decorations: common.WindowDecorations,
+    ) !void {
+        switch (self.*) {
+            .wayland => |*backend| try backend.requestWindowDecorations(handle, decorations),
+            .x11 => |*backend| try backend.requestWindowDecorations(@intCast(handle), decorations),
+            .headless => |*backend| try backend.requestWindowDecorations(handle, decorations),
+        }
+    }
+
+    pub fn showWindowMenu(self: *LinuxBackend, handle: usize, x: f32, y: f32) !void {
+        switch (self.*) {
+            .wayland => |*backend| try backend.showWindowMenu(handle, x, y),
+            .x11 => |*backend| try backend.showWindowMenu(@intCast(handle), x, y),
+            .headless => |*backend| try backend.showWindowMenu(handle, x, y),
+        }
+    }
+
+    pub fn startWindowMove(self: *LinuxBackend, handle: usize) !void {
+        switch (self.*) {
+            .wayland => |*backend| try backend.startWindowMove(handle),
+            .x11 => |*backend| try backend.startWindowMove(@intCast(handle)),
+            .headless => |*backend| try backend.startWindowMove(handle),
+        }
+    }
+
+    pub fn startWindowResize(self: *LinuxBackend, handle: usize, edge: common.ResizeEdge) !void {
+        switch (self.*) {
+            .wayland => |*backend| try backend.startWindowResize(handle, edge),
+            .x11 => |*backend| try backend.startWindowResize(@intCast(handle), edge),
+            .headless => |*backend| try backend.startWindowResize(handle, edge),
+        }
+    }
+
+    pub fn windowDecorations(self: *const LinuxBackend, handle: usize) common.Decorations {
+        return switch (self.*) {
+            .wayland => |*backend| backend.windowDecorations(handle),
+            .x11 => |*backend| backend.windowDecorations(@intCast(handle)),
+            .headless => |*backend| backend.windowDecorations(handle),
+        };
+    }
+
+    pub fn windowControls(self: *const LinuxBackend, handle: usize) common.WindowControls {
+        return switch (self.*) {
+            .wayland => |*backend| backend.windowControls(handle),
+            .x11 => |*backend| backend.windowControls(@intCast(handle)),
+            .headless => |*backend| backend.windowControls(handle),
+        };
+    }
+
+    pub fn setClientInset(self: *LinuxBackend, handle: usize, inset: u32) !void {
+        switch (self.*) {
+            .wayland => |*backend| try backend.setClientInset(handle, inset),
+            .x11 => |*backend| try backend.setClientInset(@intCast(handle), inset),
+            .headless => |*backend| try backend.setClientInset(handle, inset),
+        }
+    }
 };
 
 const LinuxRuntimeState = struct {
@@ -709,6 +817,14 @@ const vtable = common.RuntimeVTable{
     .prompt_for_new_path_alloc = runtimePromptForNewPathAlloc,
     .open_window = runtimeOpenWindow,
     .close_window = runtimeCloseWindow,
+    .set_window_title = runtimeSetWindowTitle,
+    .request_window_decorations = runtimeRequestWindowDecorations,
+    .show_window_menu = runtimeShowWindowMenu,
+    .start_window_move = runtimeStartWindowMove,
+    .start_window_resize = runtimeStartWindowResize,
+    .window_decorations = runtimeWindowDecorations,
+    .window_controls = runtimeWindowControls,
+    .set_client_inset = runtimeSetClientInset,
 };
 
 pub fn createRuntime(allocator: std.mem.Allocator, options: common.WindowOptions) !common.Runtime {
@@ -733,7 +849,6 @@ fn initWaylandOrFallback(
         error.MissingCompositor,
         error.MissingSharedMemory,
         error.MissingShell,
-        error.NativeBackendNotImplemented,
         => return if (env.x_display != null)
             .{ .x11 = try x11.client.X11Backend.init(allocator, options) }
         else
@@ -857,6 +972,54 @@ fn runtimeOpenWindow(ptr: *anyopaque, options: common.WindowOptions) anyerror!us
 fn runtimeCloseWindow(ptr: *anyopaque, handle: usize) anyerror!void {
     const runtime_state: *LinuxRuntimeState = @ptrCast(@alignCast(ptr));
     try runtime_state.backend.closeWindow(handle);
+}
+
+fn runtimeSetWindowTitle(ptr: *anyopaque, handle: usize, title: []const u8) anyerror!void {
+    const runtime_state: *LinuxRuntimeState = @ptrCast(@alignCast(ptr));
+    try runtime_state.backend.setWindowTitle(handle, title);
+}
+
+fn runtimeRequestWindowDecorations(
+    ptr: *anyopaque,
+    handle: usize,
+    decorations: common.WindowDecorations,
+) anyerror!void {
+    const runtime_state: *LinuxRuntimeState = @ptrCast(@alignCast(ptr));
+    try runtime_state.backend.requestWindowDecorations(handle, decorations);
+}
+
+fn runtimeShowWindowMenu(ptr: *anyopaque, handle: usize, x: f32, y: f32) anyerror!void {
+    const runtime_state: *LinuxRuntimeState = @ptrCast(@alignCast(ptr));
+    try runtime_state.backend.showWindowMenu(handle, x, y);
+}
+
+fn runtimeStartWindowMove(ptr: *anyopaque, handle: usize) anyerror!void {
+    const runtime_state: *LinuxRuntimeState = @ptrCast(@alignCast(ptr));
+    try runtime_state.backend.startWindowMove(handle);
+}
+
+fn runtimeStartWindowResize(
+    ptr: *anyopaque,
+    handle: usize,
+    edge: common.ResizeEdge,
+) anyerror!void {
+    const runtime_state: *LinuxRuntimeState = @ptrCast(@alignCast(ptr));
+    try runtime_state.backend.startWindowResize(handle, edge);
+}
+
+fn runtimeWindowDecorations(ptr: *const anyopaque, handle: usize) common.Decorations {
+    const runtime_state: *const LinuxRuntimeState = @ptrCast(@alignCast(ptr));
+    return runtime_state.backend.windowDecorations(handle);
+}
+
+fn runtimeWindowControls(ptr: *const anyopaque, handle: usize) common.WindowControls {
+    const runtime_state: *const LinuxRuntimeState = @ptrCast(@alignCast(ptr));
+    return runtime_state.backend.windowControls(handle);
+}
+
+fn runtimeSetClientInset(ptr: *anyopaque, handle: usize, inset: u32) anyerror!void {
+    const runtime_state: *LinuxRuntimeState = @ptrCast(@alignCast(ptr));
+    try runtime_state.backend.setClientInset(handle, inset);
 }
 
 test "runtime selection prefers wayland when wayland variables are present" {

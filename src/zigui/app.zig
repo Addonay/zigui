@@ -65,7 +65,7 @@ pub const Application = struct {
         win.theme = self.active_theme;
 
         if (self.runtime) |*runtime| {
-            _ = try runtime.openWindow(win.options);
+            win.native_handle = try runtime.openWindow(win.options);
             win.state = .visible;
         }
 
@@ -169,6 +169,75 @@ pub const Application = struct {
         }
         win.native_handle = null;
         win.state = .closed;
+    }
+
+    pub fn setWindowTitle(self: *Application, id: window.WindowId, title: []const u8) !void {
+        const win = self.getWindow(id) orelse return error.WindowNotFound;
+        try win.setTitle(self.allocator, title);
+        if (self.runtime) |*runtime| {
+            if (win.native_handle) |handle| try runtime.setWindowTitle(handle, title);
+        }
+    }
+
+    pub fn requestWindowDecorations(
+        self: *Application,
+        id: window.WindowId,
+        decorations: platform.WindowDecorations,
+    ) !void {
+        const win = self.getWindow(id) orelse return error.WindowNotFound;
+        win.options.decorations = decorations;
+        if (self.runtime) |*runtime| {
+            if (win.native_handle) |handle| try runtime.requestWindowDecorations(handle, decorations);
+        }
+    }
+
+    pub fn showWindowMenu(self: *Application, id: window.WindowId, x: f32, y: f32) !void {
+        const win = self.getWindow(id) orelse return error.WindowNotFound;
+        const runtime = self.runtime orelse return error.RuntimeUnavailable;
+        const handle = win.native_handle orelse return error.WindowHandleUnavailable;
+        try runtime.showWindowMenu(handle, x, y);
+    }
+
+    pub fn startWindowMove(self: *Application, id: window.WindowId) !void {
+        const win = self.getWindow(id) orelse return error.WindowNotFound;
+        const runtime = self.runtime orelse return error.RuntimeUnavailable;
+        const handle = win.native_handle orelse return error.WindowHandleUnavailable;
+        try runtime.startWindowMove(handle);
+    }
+
+    pub fn startWindowResize(
+        self: *Application,
+        id: window.WindowId,
+        edge: platform.ResizeEdge,
+    ) !void {
+        const win = self.getWindow(id) orelse return error.WindowNotFound;
+        const runtime = self.runtime orelse return error.RuntimeUnavailable;
+        const handle = win.native_handle orelse return error.WindowHandleUnavailable;
+        try runtime.startWindowResize(handle, edge);
+    }
+
+    pub fn windowDecorations(
+        self: *Application,
+        id: window.WindowId,
+    ) !platform.Decorations {
+        const win = self.getWindow(id) orelse return error.WindowNotFound;
+        const runtime = self.runtime orelse return error.RuntimeUnavailable;
+        const handle = win.native_handle orelse return error.WindowHandleUnavailable;
+        return runtime.windowDecorations(handle);
+    }
+
+    pub fn windowControls(self: *Application, id: window.WindowId) !platform.WindowControls {
+        const win = self.getWindow(id) orelse return error.WindowNotFound;
+        const runtime = self.runtime orelse return error.RuntimeUnavailable;
+        const handle = win.native_handle orelse return error.WindowHandleUnavailable;
+        return runtime.windowControls(handle);
+    }
+
+    pub fn setClientInset(self: *Application, id: window.WindowId, inset: u32) !void {
+        const win = self.getWindow(id) orelse return error.WindowNotFound;
+        const runtime = self.runtime orelse return error.RuntimeUnavailable;
+        const handle = win.native_handle orelse return error.WindowHandleUnavailable;
+        try runtime.setClientInset(handle, inset);
     }
 
     pub fn run(self: *Application) !void {

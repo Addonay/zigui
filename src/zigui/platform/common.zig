@@ -16,6 +16,19 @@ pub const Cursor = enum {
     pointing_hand,
     resize_left_right,
     resize_up_down,
+    resize_up_left_down_right,
+    resize_up_right_down_left,
+};
+
+pub const ResizeEdge = enum {
+    top,
+    top_right,
+    right,
+    bottom_right,
+    bottom,
+    bottom_left,
+    left,
+    top_left,
 };
 
 pub const KeyRepeatConfig = struct {
@@ -57,7 +70,35 @@ pub const WindowOptions = struct {
     width: u32 = 1280,
     height: u32 = 800,
     resizable: bool = true,
-    decorations: bool = true,
+    decorations: WindowDecorations = .server,
+};
+
+pub const WindowDecorations = enum {
+    server,
+    client,
+};
+
+pub const Tiling = struct {
+    top: bool = false,
+    left: bool = false,
+    right: bool = false,
+    bottom: bool = false,
+
+    pub fn isTiled(self: Tiling) bool {
+        return self.top or self.left or self.right or self.bottom;
+    }
+};
+
+pub const Decorations = union(enum) {
+    server,
+    client: Tiling,
+};
+
+pub const WindowControls = struct {
+    fullscreen: bool = true,
+    maximize: bool = true,
+    minimize: bool = true,
+    window_menu: bool = true,
 };
 
 pub const ClipboardKind = enum {
@@ -93,8 +134,10 @@ pub const WindowInfo = struct {
     hovered: bool = false,
     fullscreen: bool = false,
     decorated: bool = true,
+    decorations: Decorations = .server,
     resizable: bool = true,
     visible: bool = true,
+    window_controls: WindowControls = .{},
 };
 
 pub const WindowAppearance = enum {
@@ -181,6 +224,14 @@ pub const RuntimeVTable = struct {
     prompt_for_new_path_alloc: *const fn (ptr: *anyopaque, allocator: std.mem.Allocator, options: PathPromptOptions) anyerror!?[]u8,
     open_window: *const fn (ptr: *anyopaque, options: WindowOptions) anyerror!usize,
     close_window: *const fn (ptr: *anyopaque, handle: usize) anyerror!void,
+    set_window_title: *const fn (ptr: *anyopaque, handle: usize, title: []const u8) anyerror!void,
+    request_window_decorations: *const fn (ptr: *anyopaque, handle: usize, decorations: WindowDecorations) anyerror!void,
+    show_window_menu: *const fn (ptr: *anyopaque, handle: usize, x: f32, y: f32) anyerror!void,
+    start_window_move: *const fn (ptr: *anyopaque, handle: usize) anyerror!void,
+    start_window_resize: *const fn (ptr: *anyopaque, handle: usize, edge: ResizeEdge) anyerror!void,
+    window_decorations: *const fn (ptr: *const anyopaque, handle: usize) Decorations,
+    window_controls: *const fn (ptr: *const anyopaque, handle: usize) WindowControls,
+    set_client_inset: *const fn (ptr: *anyopaque, handle: usize, inset: u32) anyerror!void,
 };
 
 pub const Runtime = struct {
@@ -271,6 +322,42 @@ pub const Runtime = struct {
 
     pub fn closeWindow(self: *Runtime, handle: usize) !void {
         try self.vtable.close_window(self.ptr, handle);
+    }
+
+    pub fn setWindowTitle(self: *Runtime, handle: usize, title: []const u8) !void {
+        try self.vtable.set_window_title(self.ptr, handle, title);
+    }
+
+    pub fn requestWindowDecorations(
+        self: *Runtime,
+        handle: usize,
+        decorations: WindowDecorations,
+    ) !void {
+        try self.vtable.request_window_decorations(self.ptr, handle, decorations);
+    }
+
+    pub fn showWindowMenu(self: *Runtime, handle: usize, x: f32, y: f32) !void {
+        try self.vtable.show_window_menu(self.ptr, handle, x, y);
+    }
+
+    pub fn startWindowMove(self: *Runtime, handle: usize) !void {
+        try self.vtable.start_window_move(self.ptr, handle);
+    }
+
+    pub fn startWindowResize(self: *Runtime, handle: usize, edge: ResizeEdge) !void {
+        try self.vtable.start_window_resize(self.ptr, handle, edge);
+    }
+
+    pub fn windowDecorations(self: *const Runtime, handle: usize) Decorations {
+        return self.vtable.window_decorations(self.ptr, handle);
+    }
+
+    pub fn windowControls(self: *const Runtime, handle: usize) WindowControls {
+        return self.vtable.window_controls(self.ptr, handle);
+    }
+
+    pub fn setClientInset(self: *Runtime, handle: usize, inset: u32) !void {
+        try self.vtable.set_client_inset(self.ptr, handle, inset);
     }
 };
 
