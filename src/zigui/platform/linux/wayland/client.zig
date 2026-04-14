@@ -842,12 +842,12 @@ fn registryGlobal(
     data: ?*anyopaque,
     registry: ?*c.wl_registry,
     name: u32,
-    interface: [*:0]const u8,
+    interface: [*c]const u8,
     version: u32,
 ) callconv(.c) void {
     const state: *WaylandState = @ptrCast(@alignCast(data.?));
     const wl_registry = registry orelse return;
-    const iface = std.mem.span(interface);
+    const iface = std.mem.span(@as([*:0]const u8, @ptrCast(interface)));
 
     if (std.mem.eql(u8, iface, "wl_compositor")) {
         const bound = c.wl_registry_bind(wl_registry, name, &c.wl_compositor_interface, @min(version, 4));
@@ -1541,8 +1541,8 @@ fn outputGeometry(
     physical_width: i32,
     physical_height: i32,
     subpixel: i32,
-    make: [*:0]const u8,
-    model: [*:0]const u8,
+    make: [*c]const u8,
+    model: [*c]const u8,
     transform: i32,
 ) callconv(.c) void {
     _ = physical_width;

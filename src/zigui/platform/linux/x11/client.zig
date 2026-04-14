@@ -35,7 +35,7 @@ pub const X11Backend = struct {
         var backend = X11Backend{
             .allocator = allocator,
             .display = x11_display,
-            .windows = .{},
+            .windows = .empty,
             .xim = detectXimState(
                 getenvSlice("LC_CTYPE") orelse getenvSlice("LANG") orelse "C",
                 getenvSlice("XMODIFIERS"),
