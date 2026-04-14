@@ -74,11 +74,11 @@ pub const CursorManager = struct {
             pointer,
             serial,
             self.surface,
-            @intCast(@divTrunc(image.hotspot_x, self.scale)),
-            @intCast(@divTrunc(image.hotspot_y, self.scale)),
+            @intCast(@divTrunc(image[0].hotspot_x, self.scale)),
+            @intCast(@divTrunc(image[0].hotspot_y, self.scale)),
         );
         c.wl_surface_attach(self.surface, buffer, 0, 0);
-        c.wl_surface_damage_buffer(self.surface, 0, 0, @intCast(image.width), @intCast(image.height));
+        c.wl_surface_damage_buffer(self.surface, 0, 0, @intCast(image[0].width), @intCast(image[0].height));
         c.wl_surface_commit(self.surface);
     }
 

@@ -19,7 +19,7 @@ pub const SharedMemoryBuffer = struct {
         const size = stride * safe_height;
 
         const fd = try std.posix.memfd_create("zigui-wayland-buffer", 0);
-        defer std.posix.close(fd);
+        defer _ = std.c.close(fd);
 
         const truncate_result = std.c.ftruncate(fd, @intCast(size));
         if (truncate_result != 0) return error.ResizeFailed;

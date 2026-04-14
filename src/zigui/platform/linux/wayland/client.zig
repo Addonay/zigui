@@ -950,10 +950,12 @@ fn seatCapabilities(
         } else {
             state.pointer = pointer;
         }
-    } else if (!has_pointer and state.pointer) |pointer| {
-        c.wl_pointer_release(pointer);
-        state.pointer = null;
-        state.input_state.pointer.entered = false;
+    } else if (!has_pointer) {
+        if (state.pointer) |pointer| {
+            c.wl_pointer_release(pointer);
+            state.pointer = null;
+            state.input_state.pointer.entered = false;
+        }
     }
 
     if (has_keyboard and state.keyboard_device == null) {
@@ -963,22 +965,24 @@ fn seatCapabilities(
         } else {
             state.keyboard_device = keyboard_device;
         }
-    } else if (!has_keyboard and state.keyboard_device) |keyboard_device| {
-        c.wl_keyboard_release(keyboard_device);
-        state.keyboard_device = null;
-        state.input_state.keyboard.noteLeave();
+    } else if (!has_keyboard) {
+        if (state.keyboard_device) |keyboard_device| {
+            c.wl_keyboard_release(keyboard_device);
+            state.keyboard_device = null;
+            state.input_state.keyboard.noteLeave();
+        }
     }
 }
 
 fn seatName(
     data: ?*anyopaque,
     seat_ptr: ?*c.wl_seat,
-    name: [*:0]const u8,
+    name: [*c]const u8,
 ) callconv(.c) void {
     _ = seat_ptr;
     const state: *WaylandState = @ptrCast(@alignCast(data.?));
     if (state.seat_name) |seat_name| state.allocator.free(seat_name);
-    state.seat_name = state.allocator.dupe(u8, std.mem.span(name)) catch null;
+    state.seat_name = state.allocator.dupe(u8, std.mem.span(@as([*:0]const u8, @ptrCast(name)))) catch null;
 }
 
 const seat_listener = c.wl_seat_listener{
@@ -1614,27 +1618,27 @@ fn outputScale(
 fn outputName(
     data: ?*anyopaque,
     wl_output: ?*c.wl_output,
-    name: [*:0]const u8,
+    name: [*c]const u8,
 ) callconv(.c) void {
     const state: *WaylandState = @ptrCast(@alignCast(data.?));
     const output_ptr = wl_output orelse return;
     const output_id: output.OutputId = @intFromPtr(output_ptr);
     const pending = state.in_progress_outputs.getPtr(output_id) orelse return;
     if (pending.name) |existing| state.allocator.free(existing);
-    pending.name = state.allocator.dupe(u8, std.mem.span(name)) catch null;
+    pending.name = state.allocator.dupe(u8, std.mem.span(@as([*:0]const u8, @ptrCast(name)))) catch null;
 }
 
 fn outputDescription(
     data: ?*anyopaque,
     wl_output: ?*c.wl_output,
-    description: [*:0]const u8,
+    description: [*c]const u8,
 ) callconv(.c) void {
     const state: *WaylandState = @ptrCast(@alignCast(data.?));
     const output_ptr = wl_output orelse return;
     const output_id: output.OutputId = @intFromPtr(output_ptr);
     const pending = state.in_progress_outputs.getPtr(output_id) orelse return;
     if (pending.description) |existing| state.allocator.free(existing);
-    pending.description = state.allocator.dupe(u8, std.mem.span(description)) catch null;
+    pending.description = state.allocator.dupe(u8, std.mem.span(@as([*:0]const u8, @ptrCast(description)))) catch null;
 }
 
 const output_listener = c.wl_output_listener{
