@@ -11,7 +11,7 @@ pub const EntityRecord = struct {
 
 pub const EntityStore = struct {
     next_id: u64 = 1,
-    records: std.ArrayList(EntityRecord) = .empty,
+    records: std.ArrayListUnmanaged(EntityRecord) = .empty,
 
     pub fn init() EntityStore {
         return .{};

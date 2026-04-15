@@ -1,289 +1,84 @@
 # GPUI Crate Map
 
-This is the reference map for the GPUI-related crates inside the Zed workspace at
-`reference/zed/crates/`.
-
-The goal is not to port Rust crate-for-crate. The goal is to preserve the good
-architectural boundaries and re-express them as ZigUI subsystems.
-
-## Core Crates
-
-### `gpui`
-
-Path:
-
-- `reference/zed/crates/gpui`
-
-Role:
-
-- umbrella crate
-- defines the public GPUI programming model
-- owns the core app, entity, view, element, window, scene, style, input, text,
-  executor, and platform-facing interfaces
-
-Why it matters for ZigUI:
-
-- this is the main architecture reference
-- ZigUI should mirror the subsystem boundaries here, not the Rust syntax
-
-Important observations:
-
-- `src/gpui.rs` reexports most of the framework surface
-- `AppContext` and `VisualContext` are central traits
-- the crate already separates high-level UI concepts from per-platform and GPU
-  backend details
-
-## Platform Split
-
-### `gpui_platform`
-
-Path:
-
-- `reference/zed/crates/gpui_platform`
-
-Role:
-
-- thin platform selector
-- chooses the active platform implementation for the current OS
-- exposes helpers like `application()`, `headless()`, and
-  `background_executor()`
-
-Why it matters for ZigUI:
-
-- ZigUI should have the same kind of narrow selection layer
-- platform selection should stay outside the core UI crate
-
-### `gpui_linux`
-
-Path:
-
-- `reference/zed/crates/gpui_linux`
-
-Role:
-
-- Linux and FreeBSD platform entrypoint
-
-Why it matters for ZigUI:
-
-- confirms GPUI does not rely on SDL for Linux windowing/input
-- Linux support is implemented as a real native backend
-
-### `gpui_macos`
-
-Path:
-
-- `reference/zed/crates/gpui_macos`
-
-Role:
-
-- macOS platform implementation
-- includes dispatcher, display integration, window integration, pasteboard,
-  keyboard, Metal renderer integration, and macOS text pieces
-
-Why it matters for ZigUI:
-
-- this is the model for a real native macOS backend
-- renderer and text system hooks live close to the OS where needed
-
-### `gpui_windows`
-
-Path:
-
-- `reference/zed/crates/gpui_windows`
-
-Role:
-
-- Windows platform implementation
-- includes DirectWrite, DirectX renderer pieces, dispatcher, keyboard, events,
-  and window integration
-
-Why it matters for ZigUI:
-
-- this is the model for a real native Windows backend
-- it reinforces that ZigUI should expect separate per-OS implementations
-
-### `gpui_web`
-
-Path:
-
-- `reference/zed/crates/gpui_web`
-
-Role:
-
-- web platform implementation for wasm builds
-
-Why it matters for ZigUI:
-
-- mostly not relevant to ZigUI v0
-- useful only as a reminder that the core API can be portable across very
-  different backends
-
-## Renderer Split
-
-### `gpui_wgpu`
-
-Path:
-
-- `reference/zed/crates/gpui_wgpu`
-
-Role:
-
-- renderer backend package
-- contains the WGPU-specific context, atlas, renderer, and text integration
-
-Why it matters for ZigUI:
-
-- renderer backend should be split from the core UI model
-- ZigUI should likely have a `renderer` layer and separate backend packages or
-  modules beneath it
-
-Important observations:
-
-- the crate is small at the top level because the boundary is intentional
-- GPUI keeps renderer internals out of the public app model
-
-## Tooling And Runtime Integration
-
-### `gpui_tokio`
-
-Path:
-
-- `reference/zed/crates/gpui_tokio`
-
-Role:
-
-- optional async runtime integration
-- provides Tokio spawning through GPUI tasks
-
-Why it matters for ZigUI:
-
-- confirms executor integration should be optional
-- ZigUI should not hard-wire one async runtime into the core framework
-
-### `gpui_macros`
-
-Path:
-
-- `reference/zed/crates/gpui_macros`
-
-Role:
-
-- Rust proc macros for ergonomic derives and generated style helpers
-
-Why it matters for ZigUI:
-
-- architecturally important, but not as code to port literally
-- Zig does not have Rust proc macros, so ZigUI should solve ergonomics with
-  plain Zig APIs, comptime, and conventions instead
-
-Decision for ZigUI:
-
-- do not attempt a 1:1 macro feature port
-- copy the intent, not the mechanism
-
-## Small Support Crates That Matter
-
-### `gpui_shared_string`
-
-Path:
-
-- `reference/zed/crates/gpui_shared_string`
-
-Role:
-
-- immutable cheaply-cloneable string type
-- wraps an owned or static string representation
-
-Why it matters for ZigUI:
-
-- ZigUI may want a similar shared string type for UI labels, keys, and cheap
-  task handoff
-- small utility, but architecturally useful
-
-### `refineable`
-
-Path:
-
-- `reference/zed/crates/refineable`
-
-Role:
-
-- hierarchical refinement and cascade system
-- supports partial overrides and merged cascades
-
-Why it matters for ZigUI:
-
-- very relevant to theming and style inheritance
-- more important to copy conceptually than most of GPUI’s support crates
-
-Potential ZigUI equivalent:
-
-- a `theme` or `cascade` subsystem for partial style refinement
-
-### `sum_tree`
-
-Path:
-
-- `reference/zed/crates/sum_tree`
-
-Role:
-
-- summary tree data structure used for efficient large structured data updates
-
-Why it matters for ZigUI:
-
-- likely important later for editors, virtualization, and large text models
-- not required for the first ZigUI vertical slice
-
-## Crates To Study First
-
-These are the crates worth reading before we write more ZigUI runtime code:
-
-1. `gpui`
-2. `gpui_platform`
-3. `gpui_wgpu`
-4. `gpui_linux`
-5. `gpui_macos`
-6. `gpui_windows`
-7. `refineable`
-8. `gpui_shared_string`
-
-These are useful later:
-
-1. `gpui_tokio`
-2. `gpui_macros`
-3. `sum_tree`
-
-## ZigUI Mapping
-
-Current ZigUI placeholders already align with the GPUI split:
-
-- `src/zigui/app.zig`
-- `src/zigui/entity.zig`
-- `src/zigui/view.zig`
-- `src/zigui/element.zig`
-- `src/zigui/style.zig`
-- `src/zigui/layout.zig`
-- `src/zigui/renderer.zig`
-- `src/zigui/platform.zig`
-- `src/zigui/text.zig`
-- `src/zigui/executor.zig`
-- `src/zigui/input.zig`
-
-Native backend policy:
-
-- Linux is Wayland-first
-- X11 is not part of the current ZigUI direction
-- each OS backend should be decomposed into subsystem files instead of one
-  oversized backend file
-
-What is still missing:
-- `window`
-- `scene`
-- `theme` or `cascade`
-- `shared_string`
-- actual per-OS backend implementations
-- actual GPU backend implementation
+This document maps the GPUI crates inside `reference/zed/crates/` to the current
+ZigUI modules in this repository.
+
+For the file-level tracker and GPUI runtime flow, see
+[`docs/tracker.md`](/home/addo/dev/side/zigui/docs/tracker.md).
+
+The goal is architectural parity, not a literal Rust crate-for-crate port.
+ZigUI should preserve the same boundaries in Zig-native form and take advantage
+of Zig 0.16.0 where it helps with ownership, build-time code generation, and
+backend selection.
+
+## Zig 0.16.0 Leverage Points
+
+- `I/O as an interface`: keep platform I/O behind runtime-facing interfaces
+  instead of baking concrete `std.io` plumbing into the core UI model.
+- `Migration to unmanaged containers`: prefer `std.ArrayListUnmanaged` and
+  similar owned-storage types for long-lived app, window, scene, and backend
+  state.
+- `@cImport` moving to the build system`: protocol and header generation for
+  native backends should live in `build.zig`, not inside runtime modules.
+- `Build system package overrides` and `project-local fetch`: useful if the
+  `reference/zed` snapshot or native backend dependencies are split out later.
+- `switch` and compile-time OS selection: keep backend selection explicit and
+  small, as in `src/zigui/platform.zig`.
+
+## Current ZigUI Surface
+
+ZigUI already mirrors the GPUI boundary shape at the module level:
+
+- `src/root.zig` is the umbrella export surface, analogous to GPUI's
+  `gpui.rs`.
+- `src/zigui/app.zig` owns app configuration, app context, window lifetime, and
+  platform runtime access.
+- `src/zigui/entity.zig` is the current entity registry and identity layer.
+- `src/zigui/view.zig` and `src/zigui/element.zig` are the current view /
+  element boundary.
+- `src/zigui/window.zig` and `src/zigui/scene.zig` hold window state and
+  immediate scene commands.
+- `src/zigui/style.zig` and `src/zigui/layout.zig` cover style primitives and
+  layout boxes.
+- `src/zigui/text.zig` is the text styling and shaping placeholder.
+- `src/zigui/input.zig` is the current input event model.
+- `src/zigui/executor.zig` is the async/task placeholder.
+- `src/zigui/platform.zig`, `src/zigui/common.zig`, and `src/zigui/layer_shell.zig`
+  define the shared runtime ABI and OS selection layer.
+- `src/zigui_linux/linux/*`, `src/zigui_macos/macos/*`, and
+  `src/zigui_windows/windows/*` are the per-OS backend slices.
+- `src/zigui/shared_string.zig` and `src/zigui/theme.zig` are the support
+  types that correspond to GPUI's `gpui_shared_string` and `refineable`
+  concepts.
+- `src/zigui/renderer.zig` is only a configuration boundary right now; there
+  is no real GPU backend yet.
+
+## GPUI To ZigUI Map
+
+| GPUI crate | ZigUI module(s) | Status | Notes |
+| --- | --- | --- | --- |
+| `gpui` | `src/root.zig`, `src/zigui/app.zig`, `src/zigui/entity.zig`, `src/zigui/view.zig`, `src/zigui/element.zig`, `src/zigui/window.zig`, `src/zigui/scene.zig`, `src/zigui/style.zig`, `src/zigui/layout.zig`, `src/zigui/text.zig`, `src/zigui/input.zig`, `src/zigui/executor.zig`, `src/zigui/platform.zig`, `src/zigui/shared_string.zig`, `src/zigui/theme.zig` | Partial | The umbrella export exists and the core modules are separated, but the render pipeline, event dispatch, and context APIs are still much smaller than GPUI's. |
+| `gpui_platform` | `src/zigui/platform.zig`, `src/zigui/common.zig`, `src/zigui/layer_shell.zig` | Partial | This is the closest ZigUI analogue to the platform selection layer. It already keeps OS selection out of the core UI modules. |
+| `gpui_linux` | `src/zigui_linux/linux.zig`, `src/zigui_linux/linux/platform.zig`, `src/zigui_linux/linux/headless.zig`, `src/zigui_linux/linux/dispatcher.zig`, `src/zigui_linux/linux/text_system.zig`, `src/zigui_linux/linux/keyboard.zig`, `src/zigui/layer_shell.zig`, `src/zigui_linux/linux/wayland/*`, `src/zigui_linux/linux/x11/*`, `src/zigui_linux/linux/xdg_desktop_portal.zig` | Partial | ZigUI already has the Wayland/X11/headless split and native portal helpers, with shared layer-shell types at the root. The backend is still diagnostic/runtime-shaped rather than a full GPUI-equivalent platform loop. |
+| `gpui_macos` | `src/zigui_macos/macos.zig`, `src/zigui_macos/macos/platform.zig`, `src/zigui_macos/macos/dispatcher.zig`, `src/zigui_macos/macos/display.zig`, `src/zigui_macos/macos/display_link.zig`, `src/zigui_macos/macos/events.zig`, `src/zigui_macos/macos/keyboard.zig`, `src/zigui_macos/macos/metal_atlas.zig`, `src/zigui_macos/macos/metal_renderer.zig`, `src/zigui_macos/macos/open_type.zig`, `src/zigui_macos/macos/pasteboard.zig`, `src/zigui_macos/macos/screen_capture.zig`, `src/zigui_macos/macos/text_system.zig`, `src/zigui_macos/macos/window.zig`, `src/zigui_macos/macos/window_appearance.zig` | Partial | The macOS slice now mirrors the GPUI file split more closely, with logical display-link, pasteboard, screen-capture, and Metal renderer state modeled in Zig. Native AppKit/Cocoa interop is still pending. |
+| `gpui_windows` | `src/zigui_windows/windows.zig`, `src/zigui_windows/windows/platform.zig`, `src/zigui_windows/windows/clipboard.zig`, `src/zigui_windows/windows/destination_list.zig`, `src/zigui_windows/windows/direct_manipulation.zig`, `src/zigui_windows/windows/direct_write.zig`, `src/zigui_windows/windows/directx_atlas.zig`, `src/zigui_windows/windows/directx_devices.zig`, `src/zigui_windows/windows/directx_renderer.zig`, `src/zigui_windows/windows/dispatcher.zig`, `src/zigui_windows/windows/display.zig`, `src/zigui_windows/windows/events.zig`, `src/zigui_windows/windows/keyboard.zig`, `src/zigui_windows/windows/system_settings.zig`, `src/zigui_windows/windows/util.zig`, `src/zigui_windows/windows/vsync.zig`, `src/zigui_windows/windows/window.zig`, `src/zigui_windows/windows/wrapper.zig` | Partial | The backend now follows the GPUI file split much more closely, with stateful device/renderer snapshots and atlas reset behavior, but the actual HWND / message loop / DirectX path is still simplified and several modules are scaffolded rather than fully native. |
+| `gpui_web` | None | Deferred | ZigUI is currently native-first; a wasm/web backend is not part of the current direction. |
+| `gpui_wgpu` | `src/zigui/renderer.zig` | Scaffold | ZigUI has renderer configuration and backend preference, but not a real GPU renderer backend yet. |
+| `gpui_tokio` | `src/zigui/executor.zig` | Scaffold | Task identity and configuration exist, but there is no runtime adapter comparable to GPUI's async integration yet. |
+| `gpui_macros` | No direct equivalent; current ergonomics live in `src/zigui/element.zig` and `src/zigui/view.zig` | Intentional gap | ZigUI should use comptime, explicit APIs, and small helpers instead of trying to mimic Rust proc-macro ergonomics. |
+| `gpui_shared_string` | `src/zigui/shared_string.zig` | Implemented | ZigUI already has a shared string abstraction with static and owned storage. |
+| `refineable` | `src/zigui/theme.zig` | Implemented | Theme refinement and cascade semantics are already modeled, which is the right conceptual match for GPUI's refinement system. |
+| `sum_tree` | Not present yet | Future | This will likely matter once ZigUI grows editor-scale text or other large structured data models. |
+
+## What Still Needs To Close The Gap
+
+- real app and window contexts with observer and subscription semantics
+- a richer element tree and render caching model like GPUI's `Render` and
+  `AnyView`
+- actual scene batching and paint replay
+- a real GPU backend split from the core UI model
+- native text shaping, IME, clipboard, and full window-event dispatch
+- a more complete style and layout system
 
 ## Design Constraint
 

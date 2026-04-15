@@ -1,0 +1,62 @@
+pub const dispatcher = @import("macos/dispatcher.zig");
+pub const display = @import("macos/display.zig");
+pub const display_link = @import("macos/display_link.zig");
+pub const events = @import("macos/events.zig");
+pub const keyboard = @import("macos/keyboard.zig");
+pub const metal_atlas = @import("macos/metal_atlas.zig");
+pub const metal_renderer = @import("macos/metal_renderer.zig");
+pub const open_type = @import("macos/open_type.zig");
+pub const pasteboard = @import("macos/pasteboard.zig");
+pub const platform = @import("macos/platform.zig");
+pub const screen_capture = @import("macos/screen_capture.zig");
+pub const text_system = @import("macos/text_system.zig");
+pub const window = @import("macos/window.zig");
+pub const window_appearance = @import("macos/window_appearance.zig");
+
+pub const MacDispatcher = dispatcher.MacDispatcher;
+pub const MacDisplay = display.MacDisplay;
+pub const DisplayState = display.DisplayState;
+pub const DisplayLink = display_link.DisplayLink;
+pub const MacKeyboardLayout = keyboard.MacKeyboardLayout;
+pub const MacKeyboardMapper = keyboard.MacKeyboardMapper;
+pub const MetalAtlas = metal_atlas.MetalAtlas;
+pub const MetalRenderer = metal_renderer.MetalRenderer;
+pub const MetalRendererConfig = metal_renderer.MetalRendererConfig;
+pub const DrawReport = metal_renderer.DrawReport;
+pub const GpuSpecs = metal_renderer.GpuSpecs;
+pub const OpenTypeSettings = open_type.OpenTypeSettings;
+pub const OpenTypeFeature = open_type.OpenTypeFeature;
+pub const Pasteboard = pasteboard.Pasteboard;
+pub const MacPlatform = platform.MacPlatform;
+pub const MacOSBackend = platform.MacOSBackend;
+pub const MacScreenCaptureSource = screen_capture.MacScreenCaptureSource;
+pub const MacScreenCaptureStream = screen_capture.MacScreenCaptureStream;
+pub const ScreenCaptureState = screen_capture.ScreenCaptureState;
+pub const MacTextSystem = text_system.MacTextSystem;
+pub const UserTabbingPreference = window.UserTabbingPreference;
+pub const MacWindow = window.MacWindow;
+pub const MacWindowState = window.WindowState;
+pub const MacWindowAppearance = window_appearance.MacWindowAppearance;
+pub const createRuntime = platform.createRuntime;
+
+test "macos root exports the expected backend slices" {
+    const std = @import("std");
+
+    try std.testing.expect(@hasDecl(@This(), "dispatcher"));
+    try std.testing.expect(@hasDecl(@This(), "display"));
+    try std.testing.expect(@hasDecl(@This(), "display_link"));
+    try std.testing.expect(@hasDecl(@This(), "events"));
+    try std.testing.expect(@hasDecl(@This(), "keyboard"));
+    try std.testing.expect(@hasDecl(@This(), "metal_atlas"));
+    try std.testing.expect(@hasDecl(@This(), "metal_renderer"));
+    try std.testing.expect(@hasDecl(@This(), "open_type"));
+    try std.testing.expect(@hasDecl(@This(), "pasteboard"));
+    try std.testing.expect(@hasDecl(@This(), "platform"));
+    try std.testing.expect(@hasDecl(@This(), "screen_capture"));
+    try std.testing.expect(@hasDecl(@This(), "text_system"));
+    try std.testing.expect(@hasDecl(@This(), "window"));
+    try std.testing.expect(@hasDecl(@This(), "window_appearance"));
+    try std.testing.expect(@hasDecl(@This(), "MacPlatform"));
+    try std.testing.expect(@hasDecl(@This(), "MacOSBackend"));
+    try std.testing.expect(@hasDecl(@This(), "createRuntime"));
+}
